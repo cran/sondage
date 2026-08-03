@@ -1,0 +1,378 @@
+
+# sondage
+
+<!-- badges: start -->
+
+[![R-CMD-check](https://gitlab.com/dickoa/sondage/badges/main/pipeline.svg)](https://gitlab.com/dickoa/sondage/-/pipelines)
+[![Codecov test
+coverage](https://codecov.io/gl/dickoa/sondage/branch/main/graph/badge.svg)](https://app.codecov.io/gl/dickoa/sondage?branch=main)
+<!-- badges: end -->
+
+Fast survey sampling algorithms for `R`. Sampling functions return
+**design objects** with generics for extracting inclusion probabilities,
+joint inclusion probabilities, and variance estimation quantities.
+
+For without-replacement designs, the stored `pik` vector is the
+design-defining target inclusion probability vector. For methods with
+exact first-order guarantees, this equals the true first-order inclusion
+probabilities. For order-sampling methods such as `sps` and `pareto`,
+the stored vector remains the target `pik`, while the true
+finite-population first-order inclusion probabilities are only
+approximately equal to that target.
+
+## Installation
+
+``` r
+# From GitLab
+pak::pkg_install("gitlab::dickoa/sondage")
+```
+
+## Usage
+
+``` r
+library(sondage)
+
+# Use built-in US state data
+data(state)
+states <- as.data.frame(state.x77)
+
+# Compute inclusion probabilities from population size
+pik <- inclusion_prob(states$Population, n = 10)
+
+# Draw a sample (Conditional Poisson Sampling)
+s <- unequal_prob_wor(pik, method = "cps")
+states[s$sample, ]
+#>              Population Income Illiteracy Life Exp Murder HS Grad Frost   Area
+#> California        21198   5114        1.1    71.71   10.3    62.6    20 156361
+#> Georgia            4931   4091        2.0    68.54   13.9    40.6    60  58073
+#> Michigan           9111   4751        0.9    70.63   11.1    52.8   125  56817
+#> Mississippi        2341   3098        2.4    68.09   12.5    41.0    50  47296
+#> Missouri           4767   4254        0.8    70.69    9.3    48.8   108  68995
+#> Nebraska           1544   4508        0.6    72.60    2.9    59.3   139  76483
+#> New York          18076   4903        1.4    70.55   10.9    52.7    82  47831
+#> Pennsylvania      11860   4449        1.0    70.43    6.1    50.2   126  44966
+#> Washington         3559   4864        0.6    71.72    4.3    63.5    32  66570
+#> Wisconsin          4589   4468        0.7    72.48    3.0    54.5   149  54464
+```
+
+``` r
+# Joint inclusion probabilities for variance estimation
+pikl  <- joint_inclusion_prob(s)
+delta <- sampling_cov(s)                # pi_ij - pi_i * pi_j
+chk   <- sampling_cov(s, weighted = TRUE) # 1 - pi_i * pi_j / pi_ij
+```
+
+``` r
+# Equal probability sampling
+s <- equal_prob_wor(nrow(states), 10)
+states[s$sample, ]
+#>                Population Income Illiteracy Life Exp Murder HS Grad Frost
+#> Minnesota            3921   4675        0.6    72.96    2.3    57.6   160
+#> Colorado             2541   4884        0.7    72.06    6.8    63.9   166
+#> South Carolina       2816   3635        2.3    67.96   11.6    37.8    65
+#> Utah                 1203   4022        0.6    72.90    4.5    67.3   137
+#> Missouri             4767   4254        0.8    70.69    9.3    48.8   108
+#> Wisconsin            4589   4468        0.7    72.48    3.0    54.5   149
+#> Rhode Island          931   4558        1.3    71.90    2.4    46.4   127
+#> Tennessee            4173   3821        1.7    70.11   11.0    41.8    70
+#> Vermont               472   3907        0.6    71.64    5.5    57.1   168
+#> Mississippi          2341   3098        2.4    68.09   12.5    41.0    50
+#>                  Area
+#> Minnesota       79289
+#> Colorado       103766
+#> South Carolina  30225
+#> Utah            82096
+#> Missouri        68995
+#> Wisconsin       54464
+#> Rhode Island     1049
+#> Tennessee       41328
+#> Vermont          9267
+#> Mississippi     47296
+```
+
+``` r
+# PPS with minimum replacement (Chromy)
+hits <- expected_hits(states$Population, n = 10)
+s <- unequal_prob_wr(hits, method = "chromy")
+```
+
+``` r
+# Balanced sampling (cube method)
+pik <- inclusion_prob(states$Population, n = 10)
+x <- matrix(states$Income)
+s_bal <- balanced_wor(pik, aux = x)
+s_bal
+#> Balanced WOR [cube] (n=10, N=50): 5 10 13 14 18 24 25 32 38 44
+```
+
+``` r
+# Controlled selection e.g to keep the number of sampled states per region
+# within the integers adjacent to its expectation
+B <- sapply(levels(state.region), function(g) as.double(state.region == g))
+S <- colSums(B * pik)
+s_ctrl <- balanced_wor(
+  pik,
+  bounds = list(B = B, lower = floor(S), upper = ceiling(S))
+)
+table(state.region[s_ctrl$sample])
+#> 
+#>     Northeast         South North Central          West 
+#>             2             3             3             2
+```
+
+``` r
+# Batch sampling for simulations (design object with matrix $sample)
+sim <- unequal_prob_wor(pik, method = "cps", nrep = 1000)
+dim(sim$sample)   # 10 x 1000
+#> [1]   10 1000
+inclusion_prob(sim) # generics still work
+#>  [1] 0.17026107 0.01719095 0.10418188 0.09937783 0.99839394 0.11967728
+#>  [7] 0.14600534 0.02727003 0.38983426 0.23224269 0.04088150 0.03829108
+#> [13] 0.52736187 0.25023432 0.13474880 0.10738457 0.15952261 0.17925688
+#> [19] 0.04983021 0.19414000 0.27383066 0.42911441 0.18467321 0.11025758
+#> [25] 0.22451854 0.03513548 0.07272008 0.02778811 0.03824398 0.34537328
+#> [31] 0.05388068 0.85135243 0.25626292 0.03000174 0.50560237 0.12787242
+#> [37] 0.10757297 0.55858818 0.04384870 0.13262937 0.03207408 0.19654203
+#> [43] 0.57634431 0.05665949 0.02223049 0.23459761 0.16762355 0.08473020
+#> [49] 0.21613500 0.01770903
+```
+
+## Sampling functions
+
+**Equal probability without replacement** (`equal_prob_wor`):
+
+- `equal_prob_wor(N, n, method = "srs")` - Simple random sampling
+- `equal_prob_wor(N, n, method = "systematic")` - Systematic sampling
+- `equal_prob_wor(N, n, method = "bernoulli")` - Bernoulli sampling
+  (random size)
+
+**Equal probability with replacement** (`equal_prob_wr`):
+
+- `equal_prob_wr(N, n, method = "srs")` - Simple random sampling with
+  replacement
+
+**Unequal probability without replacement** (`unequal_prob_wor`):
+
+- `unequal_prob_wor(pik, method = "cps")` - Conditional Poisson /
+  maximum entropy
+- `unequal_prob_wor(pik, method = "sampford")` - Exact Sampford PPS with
+  exact joint probabilities
+- `unequal_prob_wor(pik, method = "brewer")` - Brewer’s method
+- `unequal_prob_wor(pik, method = "systematic")` - Systematic PPS
+- `unequal_prob_wor(pik, method = "poisson")` - Poisson sampling (random
+  size)
+- `unequal_prob_wor(pik, method = "sps")` - Sequential Poisson sampling
+  (order sampling)
+- `unequal_prob_wor(pik, method = "pareto")` - Pareto sampling (order
+  sampling)
+
+**Unequal probability with replacement** (`unequal_prob_wr`):
+
+- `unequal_prob_wr(hits, method = "chromy")` - PPS with minimum
+  replacement
+- `unequal_prob_wr(hits, method = "multinomial")` - Multinomial PPS
+
+**Balanced sampling without replacement** (`balanced_wor`):
+
+- `balanced_wor(pik, aux, method = "cube")` - Cube method (Deville &
+  Tillé, 2004)
+- `balanced_wor(pik, aux, strata, method = "cube")` - Stratified cube
+  (Chauvet, 2009)
+- `balanced_wor(pik, bounds = list(B, lower, upper))` - Cube with
+  inequality constraints (Tripet & Tillé, 2026) providing controlled
+  matrix rounding, minimum group sizes
+- `balanced_wor(pik, spread, method = "lpm2")` - Spatially balanced,
+  well-spread sampling with the local pivotal method 2 (Grafström,
+  Lundström & Schelin, 2012)
+- `balanced_wor(pik, spread, method = "scps")` - Spatially correlated
+  Poisson sampling with Grafström’s (2012) maximal-weight strategy
+
+## Design queries
+
+- `inclusion_prob(x, n)` - Compute inclusion probabilities from size
+  measures
+- `inclusion_prob(s)` - Extract the stored design-defining `pik` vector
+  from a WOR design
+- `expected_hits(x, n)` - Compute expected hits from size measures
+- `expected_hits(s)` - Extract expected hits from a WR design
+- `joint_inclusion_prob(s)` - Joint inclusion probabilities (WOR)
+- `joint_inclusion_prob(s, sampled_only = TRUE)` - n x n submatrix for
+  sampled units only (scales to large N)
+- `joint_expected_hits(s)` - Pairwise expectations E(n_i n_j) (WR)
+- `joint_expected_hits(s, sampled_only = TRUE)` - Submatrix for selected
+  units only
+- `sampling_cov(s)` - Sampling covariance matrix
+- `sampling_cov(s, weighted = TRUE)` - Check quantities for SYG variance
+  estimator
+- `sampling_cov(s, sampled_only = TRUE)` - Covariance for sampled units
+  only
+
+Joint and covariance matrices preserve population-unit names. When the
+probability vector is unnamed, sampled-only matrices use population
+indices as row and column names so their units remain identifiable.
+
+## Method comparison
+
+| Method | Dispatcher | Fixed n | Exact marginals† | Exact pi_ij | PRN |
+|----|----|----|----|----|----|
+| `srs` | `equal_prob_wor` | yes | yes | yes | no |
+| `systematic` | `equal_prob_wor` | yes | yes | yes | no |
+| `bernoulli` | `equal_prob_wor` | no | yes | yes (independent) | yes |
+| `srs` | `equal_prob_wr` | yes | yes | yes (analytic) | no |
+| `cps` | `unequal_prob_wor` | yes | yes | yes | no |
+| `sampford` | `unequal_prob_wor` | yes | yes | yes | no |
+| `brewer` | `unequal_prob_wor` | yes | yes | approx (HE) | no |
+| `systematic` | `unequal_prob_wor` | yes | yes | yes (some = 0) | no |
+| `poisson` | `unequal_prob_wor` | no | yes | yes (independent) | yes |
+| `sps` | `unequal_prob_wor` | yes | target only\* | approx (HE)\*\* | yes |
+| `pareto` | `unequal_prob_wor` | yes | target only\* | approx (HE)\*\* | yes |
+| `multinomial` | `unequal_prob_wr` | yes | yes | yes (analytic) | no |
+| `chromy` | `unequal_prob_wr` | yes | yes | simulated | no |
+| `cube` | `balanced_wor` | yes | yes | approx (HE) | no |
+| `lpm2` | `balanced_wor` | yes | yes | not available | no |
+| `scps` | `balanced_wor` | yes | yes | not available | no |
+
+†For WOR methods, design marginals are first-order inclusion
+probabilities `\pi_k`. For WR methods, design marginals are expected
+hits `E(N_k)`.
+
+\*For `sps` and `pareto`, `inclusion_prob(s)` returns the stored
+design-defining target vector; the true finite-population first-order
+inclusion probabilities are only approximately equal to that target,
+with the discrepancy vanishing asymptotically.
+
+\*\*For `sps` and `pareto`, the high-entropy approximation is built from
+the stored target `pik` vector. HE = high-entropy approximation.
+
+## Choosing a method
+
+- Use `cps` when exactness matters more than speed: it is the
+  maximum-entropy fixed-size unequal-probability design, with exact
+  first and second-order inclusion probabilities.
+- Use `brewer` when you want exact first-order inclusion probabilities
+  with lower computational cost than `cps`, and can work with
+  approximate second-order quantities in `sondage`.
+- Use `sampford` for the SAS-familiar fixed-size PPS design with exact
+  first- and second-order inclusion probabilities. Its C kernel uses
+  complement sampling and a bounded-rejection/non-rejective hybrid.
+- Use `systematic` when very fast sampling and ordering or implicit
+  stratification are central, and structural zeros in some joint
+  inclusion probabilities are acceptable.
+- Use `poisson` when a random sample size is acceptable and independent
+  selection is desirable.
+- Use `sps` or `pareto` as fast high-entropy order-sampling alternatives
+  when approximate first- and second-order quantities are acceptable.
+- Use `cube` when balancing on auxiliary variables is more important
+  than exact second-order inclusion probabilities.
+- Use `lpm2` or `scps` when the study variable is spatially structured
+  and a well-spread sample matters more than joint inclusion
+  probabilities. LPM2 makes local pairwise competitions and SCPS
+  distributes each decision over the nearest feasible neighbours.
+  Variance is then usually estimated with local-neighbourhood
+  estimators.
+
+## Custom methods
+
+`register_method()` lets you plug any unequal-probability, balanced, or
+spatially balanced sampling algorithm into sondage’s dispatchers and
+generics. Methods registered with `type = "wor"` or `type = "wr"`
+dispatch through `unequal_prob_wor()` / `unequal_prob_wr()`, and
+balanced methods (`type = "balanced"`) through `balanced_wor()`, where
+they declare which design inputs they use (`supports_aux`,
+`supports_strata`, `supports_spread`):
+
+Here `type = "balanced"` names the dispatcher family, which includes
+spatially balanced designs. Spread-only methods such as LPM2 and SCPS do
+not exactly balance auxiliary totals; their `supports_aux = FALSE`
+metadata makes that distinction enforceable rather than silently
+ignoring `aux`.
+
+``` r
+# A simple randomized pivotal sampler written in R
+random_pivotal_sample <- function(pik, n = NULL, prn = NULL, ...) {
+  p <- pik
+  tol <- 1e-06
+  active <- which(p > tol & p < 1 - tol)
+  while (length(active) >= 2L) {
+    ij <- sample(active, 2L)
+    i <- ij[1L]
+    j <- ij[2L]
+    total <- p[i] + p[j]
+    if (total < 1) {
+      if (runif(1) < p[i] / total) p[c(i, j)] <- c(total, 0)
+      else p[c(i, j)] <- c(0, total)
+    } else {
+      if (runif(1) < (1 - p[j]) / (2 - total)) {
+        p[c(i, j)] <- c(1, total - 1)
+      } else {
+        p[c(i, j)] <- c(total - 1, 1)
+      }
+    }
+    active <- which(p > tol & p < 1 - tol)
+  }
+  sort(which(p > 0.5))
+}
+
+register_method("random_pivotal", type = "wor", sample_fn = random_pivotal_sample)
+
+pik <- inclusion_prob(1:8, n = 3)
+s <- unequal_prob_wor(pik, method = "random_pivotal")
+s
+#> Unequal prob WOR [random_pivotal] (n=3, N=8): 6 7 8
+
+unregister_method("random_pivotal")
+```
+
+See `vignette("custom-methods")` for more examples, including a custom
+balanced method with stratification support, a spatially balanced method
+using `spread`, and how to provide a `joint_fn` for variance estimation.
+
+## Why not sampling?
+
+The `sampling` package (Tillé and Matei) is the reference toolkit for
+survey sampling in `R`, and it is more comprehensive than `sondage`.
+Many of the algorithms here follow the methods it established, and
+`sondage` would not exist without it.
+
+What `sondage` adds is speed. The sampling algorithms are written in
+`C`, so they usually scale better to large populations. Every sampling
+function also returns a design object with `S3` generics for inclusion
+probabilities, joint inclusion probabilities, and variance quantities,
+so the results are easy to carry into downstream work.
+
+The two packages are complementary rather than competing. With
+`register_method()` you can plug any unequal probability algorithm from
+`sampling` into the `sondage` dispatchers and generics, so they can be
+used together.
+
+## References
+
+Brewer, K.R.W. and Donadio, M.E. (2003). The High Entropy Variance of
+the Horvitz-Thompson Estimator. *Survey Methodology*, 29(2), 189-196.
+
+Chauvet, G. (2009). Stratified balanced sampling. *Survey Methodology*,
+35, 115-119.
+
+Chromy, J.R. (1979). Sequential sample selection methods. *Proceedings
+of the Survey Research Methods Section, American Statistical
+Association*, 401-406.
+
+Chromy, J.R. (2009). Some generalizations of the Horvitz-Thompson
+estimator. *Proceedings of the Survey Research Methods Section, American
+Statistical Association*.
+
+Deville, J.C. and Tillé, Y. (2004). Efficient balanced sampling: the
+cube method. *Biometrika*, 91(4), 893-912.
+
+Grafström, A. (2012). Spatially correlated Poisson sampling. *Journal of
+Statistical Planning and Inference*, 142(1), 139-147.
+
+Grafström, A., Lundström, N.L.P. and Schelin, L. (2012). Spatially
+balanced sampling through the pivotal method. *Biometrics*, 68(2),
+514-520.
+
+Tripet, A. and Tillé, Y. (2026). Balanced sampling with inequalities:
+application to category bounding, matrix rounding, and spread sampling.
+*Journal of the American Statistical Association*, 121(553), 796-806.
+
+Tillé, Y. (2006). *Sampling Algorithms*. Springer.

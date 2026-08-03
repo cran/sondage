@@ -1,0 +1,117 @@
+#include <R.h>
+#include <Rinternals.h>
+#include <R_ext/Utils.h>
+#include <math.h>
+
+SEXP C_inclusion_prob(SEXP a, SEXP n) {
+    const int len = length(a);
+    const double n_val = asReal(n);
+    const double *a_ptr = REAL(a);
+
+    if (len == 0) {
+        SEXP res = PROTECT(allocVector(REALSXP, 0));
+        UNPROTECT(1);
+        return res;
+    }
+    if (ISNA(n_val) || ISNAN(n_val)) {
+        error("n must not be NA or NaN");
+    }
+    if (n_val < 0) {
+        error("n must be non-negative");
+    }
+
+    SEXP pik = PROTECT(allocVector(REALSXP, len));
+    double *pik_ptr = REAL(pik);
+
+    /*
+     * The R wrapper (inclusion_prob.default) validates that x contains no
+     * NA / NaN / Inf before calling us, so we never see non-finite input
+     * here and can operate on plain doubles.
+     *
+     * Sizes are divided by their maximum before summation so the result
+     * is invariant to rescaling of x: raw sums of very large sizes would
+     * overflow to Inf, and sums of subnormal sizes lose all precision.
+     */
+    double max_a = 0.0;
+    for (int i = 0; i < len; i++) {
+        if (a_ptr[i] > max_a) max_a = a_ptr[i];
+    }
+
+    if (max_a == 0.0) {
+        if (n_val > 0.5) {
+            UNPROTECT(1);
+            error("'n' (%d) exceeds the number of units with positive size (0)",
+                  (int)(n_val + 0.5));
+        }
+        for (int i = 0; i < len; i++) {
+            pik_ptr[i] = 0.0;
+        }
+        UNPROTECT(1);
+        return pik;
+    }
+
+    double sum_a = 0.0;
+    for (int i = 0; i < len; i++) {
+        double val = a_ptr[i];
+        if (val <= 0.0) {
+            pik_ptr[i] = 0.0;
+        } else {
+            pik_ptr[i] = val / max_a;
+            sum_a += pik_ptr[i];
+        }
+    }
+
+    const double scale = n_val / sum_a;
+    int n_capped = 0;
+    double sum_uncapped = 0.0;
+
+    for (int i = 0; i < len; i++) {
+        double pi = pik_ptr[i] * scale;
+        if (pi >= 1.0) {
+            pik_ptr[i] = 1.0;
+            n_capped++;
+        } else {
+            pik_ptr[i] = pi;
+            sum_uncapped += pi;
+        }
+    }
+
+    while (n_capped > 0 && sum_uncapped > 0.0) {
+        R_CheckUserInterrupt();
+        double remaining_n = n_val - (double)n_capped;
+        double rescale = remaining_n / sum_uncapped;
+
+        int new_capped = 0;
+        double new_sum_uncapped = 0.0;
+
+        for (int i = 0; i < len; i++) {
+            if (pik_ptr[i] < 1.0) {
+                double pi = pik_ptr[i] * rescale;
+                if (pi >= 1.0) {
+                    pik_ptr[i] = 1.0;
+                    new_capped++;
+                } else {
+                    pik_ptr[i] = pi;
+                    new_sum_uncapped += pi;
+                }
+            }
+        }
+
+        if (new_capped == 0) {
+            break;
+        }
+
+        n_capped += new_capped;
+        sum_uncapped = new_sum_uncapped;
+    }
+
+    /* n not achievable: all probability consumed by certainty selections */
+    if (sum_uncapped == 0.0 && n_capped < (int)(n_val + 0.5)) {
+        UNPROTECT(1);
+        error("'n' (%d) exceeds the number of units with positive size (%d)",
+              (int)(n_val + 0.5), n_capped);
+    }
+
+    UNPROTECT(1);
+    return pik;
+}

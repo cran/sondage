@@ -1,0 +1,340 @@
+test_that("sps returns correct object structure", {
+  pik <- c(0.2, 0.4, 0.6, 0.8)
+  s <- unequal_prob_wor(pik, method = "sps")
+
+  expect_s3_class(s, c("unequal_prob", "wor", "sondage_sample"))
+  expect_equal(s$method, "sps")
+  expect_true(s$fixed_size)
+  expect_equal(s$N, 4L)
+  expect_equal(s$n, 2L)
+  expect_equal(s$pik, pik)
+})
+
+test_that("sps produces valid samples", {
+  pik <- c(0.2, 0.4, 0.6, 0.8)
+  set.seed(1)
+  s <- unequal_prob_wor(pik, method = "sps")
+
+  expect_equal(length(s$sample), 2L)
+  expect_true(all(s$sample >= 1L & s$sample <= 4L))
+  expect_equal(length(unique(s$sample)), length(s$sample))
+  expect_equal(s$sample, sort(s$sample))
+})
+
+test_that("sps inclusion probabilities match nominal pik", {
+  skip_on_cran()
+  set.seed(42)
+  pik <- c(0.15, 0.25, 0.35, 0.45, 0.80)
+  nrep <- 5000L
+  sim <- unequal_prob_wor(pik, method = "sps", nrep = nrep)
+  emp <- rowMeans(apply(sim$sample, 2, function(col) {
+    tabulate(col, nbins = length(pik))
+  }))
+  expect_equal(emp, pik, tolerance = 0.05)
+})
+
+test_that("sps with prn is deterministic", {
+  pik <- c(0.2, 0.4, 0.6, 0.8)
+  prn <- c(0.3, 0.7, 0.1, 0.5)
+  s1 <- unequal_prob_wor(pik, method = "sps", prn = prn)
+  s2 <- unequal_prob_wor(pik, method = "sps", prn = prn)
+  expect_identical(s1$sample, s2$sample)
+})
+
+test_that("sps top-up coordination: n subset of n+1", {
+  set.seed(1)
+  prn <- runif(10)
+  pik_small <- inclusion_prob(1:10, n = 3)
+  pik_large <- inclusion_prob(1:10, n = 4)
+
+  s_small <- unequal_prob_wor(pik_small, method = "sps", prn = prn)
+  s_large <- unequal_prob_wor(pik_large, method = "sps", prn = prn)
+
+  expect_true(all(s_small$sample %in% s_large$sample))
+})
+
+test_that("sps handles certainty units", {
+  pik <- c(1.0, 1.0, 0.3, 0.4, 0.3)
+  s <- unequal_prob_wor(pik, method = "sps")
+  expect_true(all(c(1L, 2L) %in% s$sample))
+})
+
+test_that("sps works with n = 1", {
+  pik <- c(0.1, 0.2, 0.3, 0.4)
+  s <- unequal_prob_wor(pik, method = "sps")
+  expect_equal(length(s$sample), 1L)
+})
+
+test_that("pareto returns correct object structure", {
+  pik <- c(0.2, 0.4, 0.6, 0.8)
+  s <- unequal_prob_wor(pik, method = "pareto")
+
+  expect_s3_class(s, c("unequal_prob", "wor", "sondage_sample"))
+  expect_equal(s$method, "pareto")
+  expect_true(s$fixed_size)
+  expect_equal(s$N, 4L)
+  expect_equal(s$n, 2L)
+})
+
+test_that("pareto produces valid samples", {
+  pik <- c(0.2, 0.4, 0.6, 0.8)
+  set.seed(1)
+  s <- unequal_prob_wor(pik, method = "pareto")
+
+  expect_equal(length(s$sample), 2L)
+  expect_true(all(s$sample >= 1L & s$sample <= 4L))
+  expect_equal(length(unique(s$sample)), length(s$sample))
+  expect_equal(s$sample, sort(s$sample))
+})
+
+test_that("pareto inclusion probabilities match nominal pik", {
+  skip_on_cran()
+  set.seed(42)
+  pik <- c(0.15, 0.25, 0.35, 0.45, 0.80)
+  nrep <- 10000L
+  sim <- unequal_prob_wor(pik, method = "pareto", nrep = nrep)
+  emp <- rowMeans(apply(sim$sample, 2, function(col) {
+    tabulate(col, nbins = length(pik))
+  }))
+  expect_equal(emp, pik, tolerance = 0.03)
+})
+
+test_that("pareto with prn is deterministic", {
+  pik <- c(0.2, 0.4, 0.6, 0.8)
+  prn <- c(0.3, 0.7, 0.1, 0.5)
+  s1 <- unequal_prob_wor(pik, method = "pareto", prn = prn)
+  s2 <- unequal_prob_wor(pik, method = "pareto", prn = prn)
+  expect_identical(s1$sample, s2$sample)
+})
+
+test_that("pareto top-up coordination: n subset of n+1", {
+  set.seed(1)
+  prn <- runif(10)
+  pik_small <- inclusion_prob(1:10, n = 3)
+  pik_large <- inclusion_prob(1:10, n = 4)
+
+  s_small <- unequal_prob_wor(pik_small, method = "pareto", prn = prn)
+  s_large <- unequal_prob_wor(pik_large, method = "pareto", prn = prn)
+
+  expect_true(all(s_small$sample %in% s_large$sample))
+})
+
+test_that("pareto handles certainty units", {
+  pik <- c(1.0, 1.0, 0.3, 0.4, 0.3)
+  s <- unequal_prob_wor(pik, method = "pareto")
+  expect_true(all(c(1L, 2L) %in% s$sample))
+})
+
+test_that("pareto works with n = 1", {
+  pik <- c(0.1, 0.2, 0.3, 0.4)
+  s <- unequal_prob_wor(pik, method = "pareto")
+  expect_equal(length(s$sample), 1L)
+})
+
+test_that("sps batch mode returns design object with correct dimensions", {
+  pik <- c(0.2, 0.4, 0.6, 0.8)
+  sim <- unequal_prob_wor(pik, method = "sps", nrep = 50)
+  expect_s3_class(sim, "sondage_sample")
+  expect_equal(dim(sim$sample), c(2L, 50L))
+})
+
+test_that("pareto batch mode returns design object with correct dimensions", {
+  pik <- c(0.2, 0.4, 0.6, 0.8)
+  sim <- unequal_prob_wor(pik, method = "pareto", nrep = 50)
+  expect_s3_class(sim, "sondage_sample")
+  expect_equal(dim(sim$sample), c(2L, 50L))
+})
+
+test_that("batch with prn errors (identical replicates)", {
+  pik <- c(0.2, 0.4, 0.6, 0.8)
+  prn <- c(0.3, 0.7, 0.1, 0.5)
+
+  expect_error(
+    unequal_prob_wor(pik, method = "sps", nrep = 5, prn = prn),
+    "prn and nrep > 1 cannot be used together"
+  )
+  expect_error(
+    unequal_prob_wor(pik, method = "pareto", nrep = 5, prn = prn),
+    "prn and nrep > 1 cannot be used together"
+  )
+})
+
+test_that("joint_inclusion_prob works for sps and pareto", {
+  pik <- c(0.2, 0.3, 0.5)
+  for (m in c("sps", "pareto")) {
+    s <- unequal_prob_wor(pik, method = m)
+    pikl <- joint_inclusion_prob(s)
+    expect_equal(dim(pikl), c(3L, 3L))
+    expect_equal(diag(pikl), pik)
+    expect_true(isSymmetric(pikl))
+  }
+})
+
+test_that("poisson with prn is deterministic", {
+  pik <- c(0.2, 0.4, 0.6, 0.8)
+  prn <- c(0.3, 0.7, 0.1, 0.5)
+  s1 <- unequal_prob_wor(pik, method = "poisson", prn = prn)
+  s2 <- unequal_prob_wor(pik, method = "poisson", prn = prn)
+  expect_identical(s1$sample, s2$sample)
+})
+
+test_that("poisson prn selects units where prn < pik", {
+  pik <- c(0.2, 0.4, 0.6, 0.8)
+  prn <- c(0.1, 0.5, 0.3, 0.9)
+  s <- unequal_prob_wor(pik, method = "poisson", prn = prn)
+  expected <- which(prn < pik)
+  expect_equal(s$sample, expected)
+})
+
+test_that("poisson batch with prn errors (identical replicates)", {
+  pik <- c(0.2, 0.4, 0.6, 0.8)
+  prn <- c(0.1, 0.5, 0.3, 0.9)
+  expect_error(
+    unequal_prob_wor(pik, method = "poisson", nrep = 5, prn = prn),
+    "prn and nrep > 1 cannot be used together"
+  )
+})
+
+test_that("bernoulli with prn is deterministic", {
+  prn <- c(0.1, 0.3, 0.5, 0.7, 0.9, 0.2, 0.4, 0.6, 0.8, 0.05)
+  s1 <- equal_prob_wor(10, 3, method = "bernoulli", prn = prn)
+  s2 <- equal_prob_wor(10, 3, method = "bernoulli", prn = prn)
+  expect_identical(s1$sample, s2$sample)
+})
+
+test_that("bernoulli prn selects units where prn < p", {
+  prn <- c(0.1, 0.3, 0.5, 0.7, 0.9, 0.2, 0.4, 0.6, 0.8, 0.05)
+  s <- equal_prob_wor(10, 3, method = "bernoulli", prn = prn)
+  p <- 3 / 10
+  expected <- which(prn < p)
+  expect_equal(s$sample, expected)
+})
+
+test_that("bernoulli batch with prn errors (identical replicates)", {
+  prn <- c(0.1, 0.3, 0.5, 0.7, 0.9, 0.2, 0.4, 0.6, 0.8, 0.05)
+  expect_error(
+    equal_prob_wor(10, 3, method = "bernoulli", nrep = 5, prn = prn),
+    "prn and nrep > 1 cannot be used together"
+  )
+})
+
+test_that("unsupported WOR methods reject prn", {
+  pik <- c(0.2, 0.4, 0.6, 0.8)
+  prn <- c(0.3, 0.7, 0.1, 0.5)
+  expect_error(
+    unequal_prob_wor(pik, method = "cps", prn = prn),
+    "method 'cps' does not support 'prn'"
+  )
+  expect_error(
+    unequal_prob_wor(pik, method = "brewer", prn = prn),
+    "method 'brewer' does not support 'prn'"
+  )
+  expect_error(
+    unequal_prob_wor(pik, method = "systematic", prn = prn),
+    "method 'systematic' does not support 'prn'"
+  )
+})
+
+test_that("built-in WR methods reject prn", {
+  hits <- c(0.4, 0.8, 0.5, 0.6, 0.7)
+  prn <- runif(5)
+  expect_error(
+    unequal_prob_wr(hits, method = "chromy", prn = prn),
+    "method 'chromy' does not support 'prn'"
+  )
+  expect_error(
+    unequal_prob_wr(hits, method = "multinomial", prn = prn),
+    "method 'multinomial' does not support 'prn'"
+  )
+})
+
+test_that("unsupported equal_prob_wor methods reject prn", {
+  prn <- runif(10)
+  expect_error(
+    equal_prob_wor(10, 3, method = "srs", prn = prn),
+    "method 'srs' does not support 'prn'"
+  )
+  expect_error(
+    equal_prob_wor(10, 3, method = "systematic", prn = prn),
+    "method 'systematic' does not support 'prn'"
+  )
+})
+
+test_that("equal_prob_wr rejects prn", {
+  prn <- runif(10)
+  expect_error(
+    equal_prob_wr(10, 3, prn = prn),
+    "method 'srs' does not support 'prn'"
+  )
+})
+
+test_that("check_prn rejects invalid inputs", {
+  expect_error(
+    unequal_prob_wor(c(0.5, 0.5), method = "sps", prn = "a"),
+    "'prn' must be a numeric"
+  )
+  expect_error(
+    unequal_prob_wor(c(0.5, 0.5), method = "sps", prn = c(0.3)),
+    "'prn' must have length 2"
+  )
+  expect_error(
+    unequal_prob_wor(c(0.5, 0.5), method = "sps", prn = c(0.3, NA)),
+    "missing values in 'prn'"
+  )
+  expect_error(
+    unequal_prob_wor(c(0.5, 0.5), method = "sps", prn = c(0.0, 0.5)),
+    "open interval"
+  )
+  expect_error(
+    unequal_prob_wor(c(0.5, 0.5), method = "sps", prn = c(1.0, 0.5)),
+    "open interval"
+  )
+})
+
+test_that("prn coordination: shared prn increases sample overlap", {
+  skip_on_cran()
+  set.seed(99)
+  N <- 50
+  sizes <- 1:N
+  pik_a <- inclusion_prob(sizes, n = 10)
+  pik_b <- inclusion_prob(sizes, n = 12)
+
+  nrep <- 500
+  overlap_prn <- numeric(nrep)
+  overlap_ind <- numeric(nrep)
+
+  for (i in seq_len(nrep)) {
+    prn <- runif(N)
+    # Coordinated: same prn
+    sa <- unequal_prob_wor(pik_a, method = "sps", prn = prn)
+    sb <- unequal_prob_wor(pik_b, method = "sps", prn = prn)
+    overlap_prn[i] <- length(intersect(sa$sample, sb$sample))
+
+    # Independent: different prn
+    sa2 <- unequal_prob_wor(pik_a, method = "sps", prn = runif(N))
+    sb2 <- unequal_prob_wor(pik_b, method = "sps", prn = runif(N))
+    overlap_ind[i] <- length(intersect(sa2$sample, sb2$sample))
+  }
+
+  # Coordinated samples should overlap substantially more
+  expect_gt(mean(overlap_prn), mean(overlap_ind) + 1)
+})
+
+test_that("sps selects all valid units when round(sum(pik)) == n_valid", {
+  # Exercises the partial_sort_paired n_select == n_valid early-return:
+  # all pik strictly below 1 (not certainty units) but their sum is N to
+  # floating-point accuracy, so every valid unit must be selected.
+  pik <- rep(1 - 1e-12, 10)
+  expect_lt(max(pik), 1)          # not classified as certainty
+  expect_equal(round(sum(pik)), 10L)
+  s <- unequal_prob_wor(pik, method = "sps")
+  expect_equal(sort(s$sample), 1:10)
+  expect_length(s$sample, 10L)
+})
+
+test_that("pareto selects all valid units when round(sum(pik)) == n_valid", {
+  pik <- rep(1 - 1e-12, 10)
+  s <- unequal_prob_wor(pik, method = "pareto")
+  expect_equal(sort(s$sample), 1:10)
+  expect_length(s$sample, 10L)
+})

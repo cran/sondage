@@ -1,0 +1,313 @@
+#' Equal Probability Sampling Without Replacement
+#'
+#' Draws a sample with equal inclusion probabilities, without replacement.
+#'
+#' @param N Population size (positive integer).
+#' @param n Sample size. For `"srs"` and `"systematic"`, a non-negative
+#'   integer not exceeding `N` (exact realized size). For `"bernoulli"`,
+#'   a non-negative number (not required to be an integer) interpreted
+#'   as the expected sample size; `p = n / N` is used as the selection
+#'   probability.
+#' @param method The sampling method:
+#'   \describe{
+#'     \item{`"srs"`}{Simple Random Sampling. Each possible sample of size n
+#'       has equal probability. Fixed sample size.}
+#'     \item{`"systematic"`}{Systematic sampling with interval `k = N/n`.
+#'       A random start is drawn from `(0, k]`. Fixed sample size.
+#'       Implicit stratification based on unit ordering.}
+#'     \item{`"bernoulli"`}{Bernoulli sampling. Each unit selected
+#'       independently with probability `p = n/N`. Random sample size.
+#'       Note: the realized sample size varies across draws.}
+#'   }
+#' @param nrep Number of replicate samples (default 1). When `nrep > 1`,
+#'   `$sample` holds a matrix (fixed-size) or list (random-size) of all
+#'   replicates. The design object and all generics remain usable.
+#' @param prn Optional vector of permanent random numbers (length N,
+#'   values in the open interval (0, 1)) for sample coordination.
+#'   Only supported by `"bernoulli"` method. Cannot be used with
+#'   `nrep > 1` (identical PRN would produce identical replicates).
+#' @param ... Reserved for extensions. Built-in methods currently take no
+#'   additional arguments.
+#'
+#' @return An object of class `c("equal_prob", "wor", "sondage_sample")`.
+#'   When `nrep = 1`, `$sample` is an integer vector. When `nrep > 1`,
+#'   `$sample` is a matrix (n x nrep) for fixed-size methods, or a list
+#'   of integer vectors of varying lengths for `"bernoulli"`.
+#'   `$n` is an integer for `"srs"` and `"systematic"` (realized size)
+#'   and a double for `"bernoulli"` (expected size); see [sondage_sample].
+#'
+#' @seealso [equal_prob_wr()] for with-replacement designs,
+#'   [unequal_prob_wor()] for unequal probability designs.
+#'
+#' @examples
+#' set.seed(1)
+#' s <- equal_prob_wor(10, 3)
+#' s$sample
+#'
+#' # Systematic sampling
+#' s <- equal_prob_wor(12, 3, method = "systematic")
+#' s$sample
+#'
+#' # Bernoulli sampling (random size, expected n = 30)
+#' s <- equal_prob_wor(100, 30, method = "bernoulli")
+#' length(s$sample)
+#'
+#' @export
+equal_prob_wor <- function(
+  N,
+  n,
+  method = c("srs", "systematic", "bernoulli"),
+  nrep = 1L,
+  prn = NULL,
+  ...
+) {
+  method <- .match_choice(
+    method,
+    c("srs", "systematic", "bernoulli"),
+    "method"
+  )
+  nrep <- .check_nrep_prn(
+    nrep, prn, method,
+    supports_prn = .method_supports_prn(method, "ep_wor"),
+    supported = "bernoulli"
+  )
+
+  if (nrep == 1L) {
+    switch(
+      method,
+      srs = .srs_wor_sample(N, n, ...),
+      systematic = .systematic_ep_sample(N, n, ...),
+      bernoulli = .bernoulli_sample(N, n, prn = prn, ...),
+      .stop_unknown_method(method) # nocov
+    )
+  } else {
+    .batch_ep_wor(N, n, method, nrep, ...)
+  }
+}
+
+#' Equal Probability Sampling With Replacement
+#'
+#' Draws a simple random sample with replacement.
+#'
+#' @param N Population size (positive integer).
+#' @param n Sample size (non-negative integer).
+#' @param method The sampling method. Currently only `"srs"`.
+#' @param nrep Number of replicate samples (default 1).
+#' @param prn Optional vector of permanent random numbers for sample
+#'   coordination. No equal-probability WR method currently supports `prn`;
+#'   supplying it is an error.
+#' @param ... Reserved for extensions. Built-in methods currently take no
+#'   additional arguments.
+#'
+#' @return An object of class `c("equal_prob", "wr", "sondage_sample")`.
+#'   When `nrep = 1`, `$sample` is an integer vector and `$hits` is an
+#'   integer vector. When `nrep > 1`, `$sample` is a matrix (n x nrep)
+#'   and `$hits` is a matrix (N x nrep).
+#'
+#' @seealso [equal_prob_wor()] for without-replacement designs,
+#'   [unequal_prob_wr()] for unequal probability designs.
+#'
+#' @examples
+#' set.seed(1)
+#' s <- equal_prob_wr(10, 3)
+#' s$sample
+#' s$hits
+#'
+#' @export
+equal_prob_wr <- function(N, n, method = "srs", nrep = 1L, prn = NULL, ...) {
+  method <- .match_choice(method, "srs", "method")
+  nrep <- .check_nrep_prn(nrep, prn, method, supports_prn = FALSE)
+
+  if (nrep == 1L) {
+    .srs_wr_sample(N, n, ...)
+  } else {
+    .batch_ep_wr(N, n, method, nrep, ...)
+  }
+}
+
+#' @noRd
+.srs_wor_sample <- function(N, n) {
+  N <- .check_ep_args(N, n, replace = FALSE)
+  n <- .check_number(n, "n", integer = TRUE)
+
+  .new_wor_sample(
+    sample = .srs_wor_draw(N, n),
+    pik = rep(n / N, N),
+    n = n,
+    N = N,
+    method = "srs",
+    fixed_size = TRUE,
+    prob_class = "equal_prob"
+  )
+}
+
+#' @noRd
+.systematic_ep_sample <- function(N, n) {
+  N <- .check_ep_args(N, n, replace = FALSE)
+  n <- .check_number(n, "n", integer = TRUE)
+
+  .new_wor_sample(
+    sample = .systematic_ep_draw(N, n),
+    pik = rep(n / N, N),
+    n = n,
+    N = N,
+    method = "systematic",
+    fixed_size = TRUE,
+    prob_class = "equal_prob"
+  )
+}
+
+#' @noRd
+.bernoulli_sample <- function(N, n, prn = NULL) {
+  N <- .check_ep_args(N, n, replace = FALSE)
+
+  p <- n / N
+  if (is.null(prn)) {
+    sel <- as.logical(rbinom(N, 1, p))
+  } else {
+    .check_prn(prn, N)
+    sel <- prn < p
+  }
+  idx <- which(sel)
+
+  .new_wor_sample(
+    sample = idx,
+    pik = rep(p, N),
+    n = n,
+    N = N,
+    method = "bernoulli",
+    fixed_size = FALSE,
+    prob_class = "equal_prob"
+  )
+}
+
+#' Raw equal-probability WOR draws for validated inputs.
+#'
+#' @noRd
+.srs_wor_draw <- function(N, n) {
+  if (n == 0L) integer(0) else sample.int(N, n)
+}
+
+#' @noRd
+.systematic_ep_draw <- function(N, n) {
+  if (n == 0L) return(integer(0))
+  k <- N / n
+  u <- runif(1, 0, k)
+  # Clamp the vanishingly unlikely rounded U == 0 to a valid index.
+  pmax(1L, as.integer(ceiling(u + k * (0:(n - 1)))))
+}
+
+#' @noRd
+.srs_wr_sample <- function(N, n) {
+  N <- .check_ep_args(N, n, replace = TRUE)
+  n <- .check_number(n, "n", integer = TRUE)
+
+  prob <- rep(1 / N, N)
+
+  idx <- .srs_wr_draw(N, n)
+  realized_hits <- tabulate(idx, nbins = N)
+
+  .new_wr_sample(
+    sample = idx,
+    prob = prob,
+    hits = realized_hits,
+    n = n,
+    N = N,
+    method = "srs",
+    fixed_size = TRUE,
+    prob_class = "equal_prob"
+  )
+}
+
+#' @noRd
+.srs_wr_draw <- function(N, n) {
+  if (n == 0L) integer(0) else sample.int(N, n, replace = TRUE)
+}
+
+#' @noRd
+.check_ep_args <- function(N, n, replace = FALSE) {
+  N <- .check_number(N, "N", integer = TRUE)
+  if (N < 1L) {
+    stop("'N' must be a positive integer", call. = FALSE)
+  }
+  n <- .check_number(n, "n")
+  if (n < 0) {
+    stop("'n' must be non-negative", call. = FALSE)
+  }
+  if (!replace && n > N) {
+    stop(
+      "'n' cannot exceed 'N' when sampling without replacement",
+      call. = FALSE
+    )
+  }
+  N
+}
+
+#' @noRd
+.batch_ep_wor <- function(N, n, method, nrep) {
+  # prn is rejected upstream in equal_prob_wor when nrep > 1; no prn
+  # forwarding here.
+  N_int <- .check_ep_args(N, n, replace = FALSE)
+  fixed_size <- .method_is_fixed_size(method, "ep_wor")
+
+  if (!fixed_size) {
+    p <- n / N_int
+    sample_data <- lapply(seq_len(nrep), function(i) {
+      which(as.logical(rbinom(N_int, 1, p)))
+    })
+    pik <- rep(p, N_int)
+  } else {
+    n_int <- .check_number(n, "n", integer = TRUE)
+    n <- n_int
+    mat <- matrix(0L, n_int, nrep)
+    draw_fn <- switch(
+      method,
+      srs = .srs_wor_draw,
+      systematic = .systematic_ep_draw,
+      .stop_unknown_method(method) # nocov
+    )
+    for (i in seq_len(nrep)) {
+      mat[, i] <- draw_fn(N_int, n_int)
+    }
+    sample_data <- mat
+    pik <- rep(n_int / N_int, N_int)
+  }
+
+  .new_wor_sample(
+    sample = sample_data,
+    pik = pik,
+    n = n,
+    N = N_int,
+    method = method,
+    fixed_size = fixed_size,
+    prob_class = "equal_prob"
+  )
+}
+
+#' @noRd
+.batch_ep_wr <- function(N, n, method, nrep) {
+  # prn is rejected upstream in equal_prob_wr (srs-WR does not support
+  # PRN); no prn forwarding here.
+  N_int <- .check_ep_args(N, n, replace = TRUE)
+  n_int <- .check_number(n, "n", integer = TRUE)
+  prob <- rep(1 / N_int, N_int)
+
+  sample_mat <- matrix(0L, n_int, nrep)
+  hits_mat <- matrix(0L, N_int, nrep)
+  for (i in seq_len(nrep)) {
+    idx <- .srs_wr_draw(N_int, n_int)
+    sample_mat[, i] <- idx
+    hits_mat[, i] <- tabulate(idx, nbins = N_int)
+  }
+
+  .new_wr_sample(
+    sample = sample_mat,
+    prob = prob,
+    hits = hits_mat,
+    n = n_int,
+    N = N_int,
+    method = "srs",
+    fixed_size = TRUE,
+    prob_class = "equal_prob"
+  )
+}

@@ -1,0 +1,534 @@
+---
+title: "Extending sondage with Custom Methods"
+output: rmarkdown::html_vignette
+bibliography: references.bib
+vignette: >
+  %\VignetteIndexEntry{Extending sondage with Custom Methods}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+
+## Overview
+
+`sondage` ships with 16 built-in sampling methods, but researchers and agencies often need algorithms that are not included. The registration API lets you plug a custom unequal probability or balanced sampling method into the existing dispatchers and generics without modifying the package source.
+
+After registering a method, it participates in the same dispatcher and sample-object API as built-in methods. Joint-probability and covariance queries are available when the registration supplies a `joint_fn`.
+
+## The registration API
+
+A single call to `register_method()` adds a new method:
+
+```r
+library(sondage)
+register_method(
+  name,                     # unique method name (character)
+  type = "wor",             # "wor", "wr", or "balanced"
+  sample_fn,                # function(pik/hits, n, ...) -> integer indices
+  joint_fn = NULL,          # function(pik/hits, sample_idx, ...) -> matrix
+  fixed_size = TRUE,        # required for with-replacement methods
+  variance_family = NULL,   # declared variance-estimation family (optional)
+  supports_prn = NULL,      # WOR/WR only: permanent random-number support?
+  supports_aux = NULL,      # balanced only: balancing-variable support?
+  supports_strata = NULL,   # balanced only: stratification support?
+  supports_spread = NULL,   # balanced only: spatial-spreading support?
+  probabilities = "unknown" # exact, approximate, or unknown (the default)
+)
+```
+
+The callback contracts are:
+
+- A WOR method uses **`sample_fn(pik, n = NULL, prn = NULL, ...)`**, where `pik` contains inclusion probabilities. It returns distinct selected unit indices (1-based).
+- A WR method uses **`sample_fn(hits, n = NULL, prn = NULL, ...)`**, where `hits` contains expected hit counts. It returns `n` selected unit indices, with possible repeats.
+- A balanced method uses **`sample_fn(pik, n = NULL, aux = NULL, ...)`**, where `aux` is the auxiliary balancing matrix passed to `balanced_wor()` (or `NULL`).
+- The optional joint callback follows the same naming distinction: **`joint_fn(pik, sample_idx = NULL, ...)`** returns joint inclusion probabilities for WOR and balanced methods, while **`joint_fn(hits, sample_idx = NULL, ...)`** returns joint expected hits for WR methods. It returns an $N \times N$ matrix when `sample_idx` is `NULL`, or the corresponding submatrix otherwise.
+
+The dispatcher validates that sample indices are finite integers in range and obey the replacement and sample-size rules. It also checks that joint results are finite numeric matrices with the expected dimensions and symmetry; statistical properties remain the method author's responsibility.
+
+Capability flags describe what the method can do, and the dispatchers enforce them. `NULL` means unspecified: it resolves to `FALSE`, except that `supports_aux` resolves to `TRUE` for a balanced method. WOR and WR methods may explicitly set only `supports_prn`; balanced methods may explicitly set only `supports_aux`, `supports_strata`, and `supports_spread`. Supplying a capability for another method type is an error, even when its value is `FALSE`.
+
+A `"wor"` or `"wr"` method that sets `supports_prn = TRUE` receives a validated `prn` vector for sample coordination. Otherwise supplying `prn` is an error. A `"balanced"` method only receives a `strata` argument when registered with `supports_strata = TRUE`, and a `spread` argument (spatial coordinates) when registered with `supports_spread = TRUE`. Spread-only methods that never look at balancing variables should declare `supports_aux = FALSE`. In every case, passing a design input to a method without the matching capability is an error, because silently dropping `prn`, `aux`, `strata`, or `spread` would change the requested design. The simplest balanced registration therefore needs nothing beyond `aux`. The cube method's `bounds` interface is currently built-in only, registered balanced methods cannot opt into `bounds`.
+
+`variance_family` declares how design-based variance should be estimated for samples drawn with the method: `"srs"`, `"pps_brewer"`, `"poisson"`, `"wr"`, or `"unsupported"`. `sondage` does not use it itself, but packages that export samples for variance estimation do. Without a declaration they must infer a treatment from `type` and `fixed_size`, and for a random-size WOR method no safe inference exists because a Poisson-type method (independent selections) and a correlated random-size scheme need different estimators. The declaration is an assertion the author is responsible for and `?register_method` lists the constraints between `variance_family`, `type`, and `fixed_size`, and Example 1 shows how to check a declaration by simulation. When in doubt, declare `"unsupported"` rather than guess.
+
+`probabilities` places the method in the first-order probability taxonomy. Use `"exact"` when the true first-order inclusion probabilities equal the `pik` passed to a WOR callback, or the expected hits equal the `hits` passed to a WR callback, as they do for Sampford and the cube method. Use `"approximate"` when the method honors its input to a documented approximation, as Pareto and sequential Poisson order sampling do. Use `"unknown"`, the default, when the input only steers the selection. Successive sampling with `sample.int(prob = pik, replace = FALSE)` belongs to this last tier because its true inclusion probabilities differ from `pik`. The same draw with replacement does honor expected hits, so a multinomial-style `"wr"` method declares `"exact"`.
+
+The tier matters to packages that use `1/pik` as design weights. For an `"unknown"` method, those weights are systematically biased rather than merely noisy. A downstream package may therefore read the tier through `method_spec()` and refuse the method for weighted estimation instead of asserting probabilities the design never had. The default is deliberately strict. If you have not established which tier your method is in, its selection probabilities are unknown. Sampling through sondage itself is unaffected because the declaration describes the method and never disables it. As with `variance_family`, the method author is responsible for the declaration. The simulation below shows how to check it.
+
+Helper functions `registered_methods()`, `is_registered_method()`, and `unregister_method()` manage the registry.
+
+## Example 1: Randomized pivotal sampling
+
+The pivotal method of @deville1998 repeatedly combines two fractional
+inclusion probabilities and resolves at least one of them to zero or one.
+Randomizing the pair at each step gives a compact example of an exact
+fixed-size $\pi$ps sampler that is not already a built-in `sondage` method.
+
+```{r pivotal-fn}
+random_pivotal_sample <- function(pik, n = NULL, prn = NULL, ...) {
+  tol <- 1e-06
+  active <- which(pik > tol & pik < 1 - tol)
+
+  while (length(active) >= 2L) {
+    ij <- sample(active, 2L)
+    i <- ij[1L]
+    j <- ij[2L]
+    total <- pik[i] + pik[j]
+
+    if (total < 1) {
+      if (runif(1) < pik[i] / total)
+        pik[c(i, j)] <- c(total, 0)
+      else pik[c(i, j)] <- c(0, total)
+    } else {
+      if (runif(1) < (1 - pik[j]) / (2 - total)) {
+        pik[c(i, j)] <- c(1, total - 1)
+      } else {
+        pik[c(i, j)] <- c(total - 1, 1)
+      }
+    }
+    active <- which(pik > tol & pik < 1 - tol)
+  }
+  sort(which(pik > 0.5))
+}
+```
+
+### Joint probabilities via `he_jip()`
+
+Closed-form joint probabilities are not generally available for randomized
+pivotal sampling. To demonstrate the optional `joint_fn` hook, we attach the
+high-entropy approximation of @brewer2003. This makes the standard variance
+generics available, but it remains an approximation whose suitability should
+be checked for the intended population. For designs closer to conditional
+Poisson sampling, `hajek_jip()` is another exported approximation.
+
+```{r pivotal-register}
+library(sondage)
+
+register_method(
+  "random_pivotal",
+  type            = "wor",
+  sample_fn       = random_pivotal_sample,
+  joint_fn        = he_jip,
+  fixed_size      = TRUE,
+  variance_family = "pps_brewer",
+  probabilities   = "exact"
+)
+```
+
+The method is now available through the standard dispatcher, and its declared
+joint approximation flows through `joint_inclusion_prob()` and
+`sampling_cov()`:
+
+```{r pivotal-use}
+pik <- inclusion_prob(c(2, 3, 4, 5, 6, 7, 8, 9), n = 4)
+s <- unequal_prob_wor(pik, method = "random_pivotal")
+s
+
+pikl <- joint_inclusion_prob(s)
+round(pikl, 4)
+round(sampling_cov(s, weighted = TRUE), 4)
+joint_inclusion_prob(s, sampled_only = TRUE)
+```
+
+### Verifying the registration
+
+Simulation verifies the exact first-order contract and shows how closely the
+chosen joint approximation follows this particular randomized pairing rule.
+
+```{r pivotal-verify}
+sim <- unequal_prob_wor(pik, method = "random_pivotal", nrep = 5000)
+freq <- tabulate(sim$sample, nbins = length(pik)) / 5000
+cbind(target = pik, empirical = freq)
+
+N <- length(pik)
+co_occur <- matrix(0, N, N)
+for (j in seq_len(5000)) {
+  selected <- sim$sample[, j]
+  co_occur[selected, selected] <- co_occur[selected, selected] + 1
+}
+empirical_jip <- co_occur / 5000
+he_pikl <- he_jip(pik)
+
+pairs <- data.frame(
+  i = c(1, 2, 3, 5),
+  j = c(8, 7, 6, 8)
+)
+pairs$HE <- round(he_pikl[cbind(pairs$i, pairs$j)], 4)
+pairs$empirical <- round(empirical_jip[cbind(pairs$i, pairs$j)], 4)
+pairs
+```
+
+The first-order frequencies should agree within Monte Carlo error. Differences
+in the pairwise columns measure approximation error, not failure of the pivotal
+sampler. If that error is unacceptable, omit `joint_fn` and declare
+`variance_family = "unsupported"`, or supply a design-specific joint or
+variance estimator.
+
+```{r pivotal-cleanup, include = FALSE}
+unregister_method("random_pivotal")
+```
+
+
+## Example 2: Wrapping an external package (sampling::UPtille)
+
+When an algorithm is already implemented in another package, the
+wrapper is minimal. Here we wrap `UPtille` and `UPtillepi2` from the
+**sampling** package [@tille2006].
+
+```{r tille, eval = requireNamespace("sampling", quietly = TRUE)}
+tille_sample <- function(pik, n = NULL, prn = NULL, ...) {
+  which(as.logical(sampling::UPtille(pik)))
+}
+
+tille_joint <- function(pik, sample_idx = NULL, ...) {
+  pikl <- sampling::UPtillepi2(pik)
+  if (!is.null(sample_idx)) {
+    pikl <- pikl[sample_idx, sample_idx, drop = FALSE]
+  }
+  pikl
+}
+
+register_method(
+  "tille",
+  type            = "wor",
+  sample_fn       = tille_sample,
+  joint_fn        = tille_joint,
+  fixed_size      = TRUE,
+  variance_family = "pps_brewer",
+  probabilities   = "exact"
+)
+
+pik <- inclusion_prob(c(2, 3, 4, 5, 6, 7, 8, 9), n = 4)
+s <- unequal_prob_wor(pik, method = "tille")
+s
+
+# Exact joint inclusion probabilities from UPtillepi2
+round(joint_inclusion_prob(s), 4)
+
+# Full variance estimation chain
+round(sampling_cov(s), 4)
+```
+
+```{r tille-cleanup, include = FALSE, eval = requireNamespace("sampling", quietly = TRUE)}
+unregister_method("tille")
+```
+
+## Example 3: A custom with-replacement method
+
+With-replacement callbacks receive expected hits rather than inclusion
+probabilities. The sample callback returns `n` indices and may repeat units;
+the joint callback returns $E(N_iN_j)$, not joint inclusion probabilities.
+This example reproduces a multinomial PPS design under a custom name:
+
+```{r custom-wr}
+custom_multinomial_sample <- function(hits, n = NULL, prn = NULL, ...) {
+  sample.int(length(hits), size = n, replace = TRUE, prob = hits)
+}
+
+custom_multinomial_joint <- function(hits, sample_idx = NULL, ...) {
+  n <- round(sum(hits))
+  keep <- if (is.null(sample_idx)) seq_along(hits) else sample_idx
+  h <- hits[keep]
+  factor <- (n - 1) / n
+  joint <- factor * outer(h, h)
+  diag(joint) <- h + factor * h^2
+  joint
+}
+
+register_method(
+  "custom_multinomial",
+  type            = "wr",
+  sample_fn       = custom_multinomial_sample,
+  joint_fn        = custom_multinomial_joint,
+  variance_family = "wr",
+  probabilities   = "exact"
+)
+
+hits <- expected_hits(c(2, 3, 5, 10), n = 4)
+s_wr <- unequal_prob_wr(hits, method = "custom_multinomial")
+s_wr
+joint_expected_hits(s_wr)
+joint_expected_hits(s_wr, sampled_only = TRUE)
+```
+
+```{r custom-wr-cleanup, include = FALSE}
+unregister_method("custom_multinomial")
+```
+
+
+## Example 4: A custom balanced method
+
+Balanced methods register with `type = "balanced"` and dispatch
+through `balanced_wor()`. The minimal contract only involves `aux`,
+so wrapping an aux-only algorithm is a one-liner. Here we wrap the
+cube implementation from the **sampling** package, whose landing
+phase uses linear programming and can therefore give different
+samples than the built-in `"cube"` method.
+
+Note two conventions. The wrapper receives `aux` exactly as the
+caller supplied it (validated, but without the sample-size
+constraint prepended), so we `cbind(pik, aux)` ourselves because
+`samplecube()` expects the size constraint as a balancing column.
+And since the cube method produces a high-entropy design, we can
+pass `he_jip` as the `joint_fn`, which is exactly what the built-in
+method uses.
+
+```{r cube-lp, eval = requireNamespace("sampling", quietly = TRUE)}
+cube_lp_sample <- function(pik, n = NULL, aux = NULL, ...) {
+  X <- cbind(pik, aux)
+  which(sampling::samplecube(X, pik, comment = FALSE) == 1)
+}
+
+register_method(
+  "cube_lp",
+  type            = "balanced",
+  sample_fn       = cube_lp_sample,
+  joint_fn        = he_jip,
+  variance_family = "pps_brewer",
+  probabilities   = "exact"
+)
+
+pik <- inclusion_prob(c(2, 3, 4, 5, 6, 7, 8, 9), n = 4)
+x <- matrix(c(10, 20, 15, 25, 30, 35, 40, 45))
+s <- balanced_wor(pik, aux = x, method = "cube_lp")
+s
+
+# Balancing check: HT estimate of the aux total vs the true total
+colSums(x[s$sample, , drop = FALSE] / pik[s$sample]) - colSums(x)
+```
+
+To support stratification as well, register with
+`supports_strata = TRUE` and add a `strata` argument to the
+sampler. The dispatcher passes `strata` as dense integer labels
+`1:H` (only when the caller supplies them), and demotes
+`fixed_size` with a warning when per-stratum `sum(pik)` is not
+close to an integer, mirroring the built-in method.
+
+```{r cube-lp-strata, eval = requireNamespace("sampling", quietly = TRUE)}
+cube_lp_stratified <- function(pik, n = NULL, aux = NULL, strata = NULL, ...) {
+  if (is.null(strata)) {
+    return(cube_lp_sample(pik, n = n, aux = aux))
+  }
+  X <- if (is.null(aux)) matrix(pik, ncol = 1) else cbind(pik, aux)
+  which(sampling::balancedstratification(X, strata, pik, comment = FALSE) == 1)
+}
+
+register_method(
+  "cube_lp_str",
+  type            = "balanced",
+  sample_fn       = cube_lp_stratified,
+  joint_fn        = he_jip,
+  variance_family = "pps_brewer",
+  supports_strata = TRUE,
+  probabilities   = "exact"
+)
+
+pik <- rep(0.5, 8)
+strata <- rep(1:2, each = 4)
+s <- balanced_wor(pik, aux = matrix(as.double(1:8)), strata = strata,
+                  method = "cube_lp_str")
+
+# Within-stratum sample sizes are preserved
+tabulate(strata[s$sample], nbins = 2)
+```
+
+```{r cube-lp-cleanup, include = FALSE, eval = requireNamespace("sampling", quietly = TRUE)}
+unregister_method("cube_lp")
+unregister_method("cube_lp_str")
+```
+
+## Example 5: A spatial method with `spread`
+
+Spatially balanced (well-spread) designs select units that are far
+apart in space, which improves precision whenever the study variable
+is spatially structured. Registered balanced methods opt into
+spatial spreading with `supports_spread = TRUE`, and then receive
+the coordinate matrix that the caller passes to
+`balanced_wor(spread = )`.
+
+`sondage` ships LPM2 and SCPS as the built-in spread-only methods
+`balanced_wor(pik, spread = , method = "lpm2")` and
+`balanced_wor(pik, spread = , method = "scps")`. Here we register
+its sibling LPM1 [@grafstrom2012], which differs only in the pair
+rule: a random undecided unit competes with its nearest undecided
+neighbour *only when the two are mutual nearest neighbours*,
+giving slightly better spread at extra cost. The in-house SCPS core uses
+the maximal-weight rule of @grafstrom2012scps with a weighted quickselect
+distance cutoff. Methods not shipped in `sondage`, such as local cube, can
+still be supplied through the same registration contract.
+
+```{r lpm1-fn}
+lpm1_sample <- function(pik, n = NULL, aux = NULL, spread = NULL, ...) {
+  d <- as.matrix(dist(spread))
+  diag(d) <- Inf
+  p <- pik
+  eps <- 1e-9
+  repeat {
+    u <- which(p > eps & p < 1 - eps)
+    if (length(u) == 0L) {
+      break
+    }
+    if (length(u) == 1L) {
+      p[u] <- as.numeric(runif(1) < p[u])
+      break
+    }
+    i <- u[sample.int(length(u), 1L)]
+    v <- u[u != i]
+    j <- v[which.min(d[i, v])]
+    w <- u[u != j]
+    if (w[which.min(d[j, w])] != i) {
+      next # not mutual nearest neighbours: redraw i
+    }
+    s <- p[i] + p[j]
+    if (s > 1) {
+      if (runif(1) < (1 - p[j]) / (2 - s)) {
+        p[i] <- 1
+        p[j] <- s - 1
+      } else {
+        p[j] <- 1
+        p[i] <- s - 1
+      }
+    } else {
+      if (runif(1) < p[j] / s) {
+        p[j] <- s
+        p[i] <- 0
+      } else {
+        p[i] <- s
+        p[j] <- 0
+      }
+    }
+  }
+  which(p > 1 - eps)
+}
+
+register_method(
+  "lpm1",
+  type             = "balanced",
+  sample_fn        = lpm1_sample,
+  variance_family  = "unsupported",
+  supports_aux     = FALSE,
+  supports_spread  = TRUE,
+  probabilities    = "exact"
+)
+```
+
+Since the local pivotal method and SCPS spread but never exactly balance
+on auxiliary totals, a custom method in this family is registered with
+`supports_aux = FALSE`.
+A caller who passes `aux` then gets an immediate error instead of a
+sample that silently ignored the requested balancing constraints.
+
+```{r lpm1-run}
+set.seed(25)
+N <- 200
+coords <- cbind(runif(N), runif(N))
+pik <- rep(0.15, N)
+
+s <- balanced_wor(pik, spread = coords, method = "lpm1")
+s
+
+# Spread diagnostic: mean distance to the nearest sampled neighbour
+# (larger is better spread)
+nn_dist <- function(idx) {
+  d <- as.matrix(dist(coords[idx, ]))
+  diag(d) <- Inf
+  mean(apply(d, 1, min))
+}
+s2 <- balanced_wor(pik, spread = coords, method = "lpm2")
+s3 <- balanced_wor(pik, spread = coords, method = "scps")
+c(
+  lpm1 = nn_dist(s$sample),
+  lpm2 = nn_dist(s2$sample),
+  scps = nn_dist(s3$sample),
+  srs = nn_dist(sample.int(N, s$n))
+)
+```
+
+A note on variance estimation. Well-spread designs have no
+tractable joint inclusion probabilities (the high-entropy
+approximation does not apply, since spreading deliberately drives
+nearby joint probabilities toward zero), so `joint_fn` is usually
+left as `NULL` and `joint_inclusion_prob()` / `sampling_cov()`
+will error for these methods. In practice, variance for spatially
+balanced samples is estimated with local-neighbourhood estimators
+such as the local mean estimator of @grafstrom2014, which `sondage`
+does not implement yet.
+
+```{r lpm1-cleanup, include = FALSE}
+unregister_method("lpm1")
+```
+
+## Writing a `joint_fn`
+
+A `joint_fn` is optional but enables `joint_inclusion_prob()`,
+`joint_expected_hits()`, and `sampling_cov()`. Five common
+strategies:
+
+1. **Exact formula.** When the design has a known closed form
+   (e.g., `UPtillepi2` above).
+
+2. **`he_jip()`.** The high-entropy approximation
+   [@brewer2003]. Best for maximum-entropy and high-entropy
+   designs (Sampford, Tillé, and most $\pi$ps procedures). Uses
+   optimised C code internally. Pass it directly:
+   `joint_fn = he_jip`.
+
+3. **`hajek_jip()`.** The Hajek [-@hajek1964] approximation
+   based on conditional Poisson (rejective) sampling theory.
+   Simpler formula and slightly cheaper, but generally a bit
+   less accurate than `he_jip()`. Best when the design is
+   obtained by conditioning independent Poisson trials on the
+   sample size. Pass it directly: `joint_fn = hajek_jip`.
+
+4. **Other approximations**. Other methods exist in the literature and can be
+   implemented as custom `joint_fn` functions. @tille1996 reviews
+   several alternatives, including approximations based on
+   Poisson, rejective, and successive sampling theory, each with
+   different accuracy--computation trade-offs. Any function that
+   accepts `(pik, sample_idx = NULL, ...)` and returns a symmetric
+   matrix is a valid `joint_fn`.
+
+5. **Monte Carlo estimation.** Resample $B$ times and estimate
+   $\hat{\pi}_{ij} = B^{-1} \sum_{b=1}^B I(i \in S_b)\, I(j \in S_b)$.
+   Slow but universal:
+
+```{r mc-joint, eval = FALSE}
+mc_joint <- function(pik, sample_idx = NULL, ..., B = 5000) {
+  N <- length(pik)
+  n <- as.integer(round(sum(pik)))
+  co <- matrix(0, N, N)
+  for (b in seq_len(B)) {
+    s <- my_sampler(pik, n = n)
+    co[s, s] <- co[s, s] + 1
+  }
+  pikl <- co / B
+  diag(pikl) <- tabulate(unlist(
+    replicate(B, my_sampler(pik, n = n), simplify = FALSE)
+  ), nbins = N) / B
+  if (!is.null(sample_idx)) {
+    pikl <- pikl[sample_idx, sample_idx, drop = FALSE]
+  }
+  pikl
+}
+```
+
+The `sample_idx` argument enables the `sampled_only = TRUE` path
+in `joint_inclusion_prob()`. When `sample_idx` is non-NULL, you
+may either (a) compute the full matrix and subset as above, or
+(b) skip rows/columns not in `sample_idx` for efficiency.
+
+## Session persistence
+
+The registry lives in the package namespace and resets when
+`sondage` is reloaded. To make a registration persistent across
+sessions, place the `register_method()` call in your `.Rprofile` or
+in a project-level setup script.
+
+## References
