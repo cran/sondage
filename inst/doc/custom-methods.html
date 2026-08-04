@@ -550,7 +550,7 @@ declared joint approximation flows through
 <div class="sourceCode" id="cb4"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" tabindex="-1"></a>pik <span class="ot">&lt;-</span> <span class="fu">inclusion_prob</span>(<span class="fu">c</span>(<span class="dv">2</span>, <span class="dv">3</span>, <span class="dv">4</span>, <span class="dv">5</span>, <span class="dv">6</span>, <span class="dv">7</span>, <span class="dv">8</span>, <span class="dv">9</span>), <span class="at">n =</span> <span class="dv">4</span>)</span>
 <span id="cb4-2"><a href="#cb4-2" tabindex="-1"></a>s <span class="ot">&lt;-</span> <span class="fu">unequal_prob_wor</span>(pik, <span class="at">method =</span> <span class="st">&quot;random_pivotal&quot;</span>)</span>
 <span id="cb4-3"><a href="#cb4-3" tabindex="-1"></a>s</span>
-<span id="cb4-4"><a href="#cb4-4" tabindex="-1"></a><span class="co">#&gt; Unequal prob WOR [random_pivotal] (n=4, N=8): 3 5 6 8</span></span>
+<span id="cb4-4"><a href="#cb4-4" tabindex="-1"></a><span class="co">#&gt; Unequal prob WOR [random_pivotal] (n=4, N=8): 2 6 7 8</span></span>
 <span id="cb4-5"><a href="#cb4-5" tabindex="-1"></a></span>
 <span id="cb4-6"><a href="#cb4-6" tabindex="-1"></a>pikl <span class="ot">&lt;-</span> <span class="fu">joint_inclusion_prob</span>(s)</span>
 <span id="cb4-7"><a href="#cb4-7" tabindex="-1"></a><span class="fu">round</span>(pikl, <span class="dv">4</span>)</span>
@@ -574,11 +574,11 @@ declared joint approximation flows through
 <span id="cb4-25"><a href="#cb4-25" tabindex="-1"></a><span class="co">#&gt; [7,] -0.2043 -0.1793 -0.1528 -0.1246 -0.0946 -0.0626  0.2727  0.0081</span></span>
 <span id="cb4-26"><a href="#cb4-26" tabindex="-1"></a><span class="co">#&gt; [8,] -0.1544 -0.1314 -0.1070 -0.0810 -0.0532 -0.0236  0.0081  0.1818</span></span>
 <span id="cb4-27"><a href="#cb4-27" tabindex="-1"></a><span class="fu">joint_inclusion_prob</span>(s, <span class="at">sampled_only =</span> <span class="cn">TRUE</span>)</span>
-<span id="cb4-28"><a href="#cb4-28" tabindex="-1"></a><span class="co">#&gt;           3         5         6         8</span></span>
-<span id="cb4-29"><a href="#cb4-29" tabindex="-1"></a><span class="co">#&gt; 3 0.3636364 0.1604026 0.1934985 0.2687666</span></span>
-<span id="cb4-30"><a href="#cb4-30" tabindex="-1"></a><span class="co">#&gt; 5 0.1604026 0.5454545 0.3062464 0.4237196</span></span>
-<span id="cb4-31"><a href="#cb4-31" tabindex="-1"></a><span class="co">#&gt; 6 0.1934985 0.3062464 0.6363636 0.5086542</span></span>
-<span id="cb4-32"><a href="#cb4-32" tabindex="-1"></a><span class="co">#&gt; 8 0.2687666 0.4237196 0.5086542 0.8181818</span></span></code></pre></div>
+<span id="cb4-28"><a href="#cb4-28" tabindex="-1"></a><span class="co">#&gt;           2         6         7         8</span></span>
+<span id="cb4-29"><a href="#cb4-29" tabindex="-1"></a><span class="co">#&gt; 2 0.2727273 0.1417381 0.1681894 0.1972218</span></span>
+<span id="cb4-30"><a href="#cb4-30" tabindex="-1"></a><span class="co">#&gt; 6 0.1417381 0.6363636 0.4355263 0.5086542</span></span>
+<span id="cb4-31"><a href="#cb4-31" tabindex="-1"></a><span class="co">#&gt; 7 0.1681894 0.4355263 0.7272727 0.5999281</span></span>
+<span id="cb4-32"><a href="#cb4-32" tabindex="-1"></a><span class="co">#&gt; 8 0.1972218 0.5086542 0.5999281 0.8181818</span></span></code></pre></div>
 </div>
 <div id="verifying-the-registration" class="section level3">
 <h3>Verifying the registration</h3>
@@ -589,14 +589,14 @@ randomized pairing rule.</p>
 <span id="cb5-2"><a href="#cb5-2" tabindex="-1"></a>freq <span class="ot">&lt;-</span> <span class="fu">tabulate</span>(sim<span class="sc">$</span>sample, <span class="at">nbins =</span> <span class="fu">length</span>(pik)) <span class="sc">/</span> <span class="dv">5000</span></span>
 <span id="cb5-3"><a href="#cb5-3" tabindex="-1"></a><span class="fu">cbind</span>(<span class="at">target =</span> pik, <span class="at">empirical =</span> freq)</span>
 <span id="cb5-4"><a href="#cb5-4" tabindex="-1"></a><span class="co">#&gt;         target empirical</span></span>
-<span id="cb5-5"><a href="#cb5-5" tabindex="-1"></a><span class="co">#&gt; [1,] 0.1818182    0.1798</span></span>
-<span id="cb5-6"><a href="#cb5-6" tabindex="-1"></a><span class="co">#&gt; [2,] 0.2727273    0.2734</span></span>
-<span id="cb5-7"><a href="#cb5-7" tabindex="-1"></a><span class="co">#&gt; [3,] 0.3636364    0.3698</span></span>
-<span id="cb5-8"><a href="#cb5-8" tabindex="-1"></a><span class="co">#&gt; [4,] 0.4545455    0.4462</span></span>
-<span id="cb5-9"><a href="#cb5-9" tabindex="-1"></a><span class="co">#&gt; [5,] 0.5454545    0.5452</span></span>
-<span id="cb5-10"><a href="#cb5-10" tabindex="-1"></a><span class="co">#&gt; [6,] 0.6363636    0.6390</span></span>
-<span id="cb5-11"><a href="#cb5-11" tabindex="-1"></a><span class="co">#&gt; [7,] 0.7272727    0.7312</span></span>
-<span id="cb5-12"><a href="#cb5-12" tabindex="-1"></a><span class="co">#&gt; [8,] 0.8181818    0.8154</span></span>
+<span id="cb5-5"><a href="#cb5-5" tabindex="-1"></a><span class="co">#&gt; [1,] 0.1818182    0.1844</span></span>
+<span id="cb5-6"><a href="#cb5-6" tabindex="-1"></a><span class="co">#&gt; [2,] 0.2727273    0.2752</span></span>
+<span id="cb5-7"><a href="#cb5-7" tabindex="-1"></a><span class="co">#&gt; [3,] 0.3636364    0.3658</span></span>
+<span id="cb5-8"><a href="#cb5-8" tabindex="-1"></a><span class="co">#&gt; [4,] 0.4545455    0.4554</span></span>
+<span id="cb5-9"><a href="#cb5-9" tabindex="-1"></a><span class="co">#&gt; [5,] 0.5454545    0.5438</span></span>
+<span id="cb5-10"><a href="#cb5-10" tabindex="-1"></a><span class="co">#&gt; [6,] 0.6363636    0.6240</span></span>
+<span id="cb5-11"><a href="#cb5-11" tabindex="-1"></a><span class="co">#&gt; [7,] 0.7272727    0.7232</span></span>
+<span id="cb5-12"><a href="#cb5-12" tabindex="-1"></a><span class="co">#&gt; [8,] 0.8181818    0.8282</span></span>
 <span id="cb5-13"><a href="#cb5-13" tabindex="-1"></a></span>
 <span id="cb5-14"><a href="#cb5-14" tabindex="-1"></a>N <span class="ot">&lt;-</span> <span class="fu">length</span>(pik)</span>
 <span id="cb5-15"><a href="#cb5-15" tabindex="-1"></a>co_occur <span class="ot">&lt;-</span> <span class="fu">matrix</span>(<span class="dv">0</span>, N, N)</span>
@@ -615,10 +615,10 @@ randomized pairing rule.</p>
 <span id="cb5-28"><a href="#cb5-28" tabindex="-1"></a>pairs<span class="sc">$</span>empirical <span class="ot">&lt;-</span> <span class="fu">round</span>(empirical_jip[<span class="fu">cbind</span>(pairs<span class="sc">$</span>i, pairs<span class="sc">$</span>j)], <span class="dv">4</span>)</span>
 <span id="cb5-29"><a href="#cb5-29" tabindex="-1"></a>pairs</span>
 <span id="cb5-30"><a href="#cb5-30" tabindex="-1"></a><span class="co">#&gt;   i j     HE empirical</span></span>
-<span id="cb5-31"><a href="#cb5-31" tabindex="-1"></a><span class="co">#&gt; 1 1 8 0.1289    0.1192</span></span>
-<span id="cb5-32"><a href="#cb5-32" tabindex="-1"></a><span class="co">#&gt; 2 2 7 0.1682    0.1618</span></span>
-<span id="cb5-33"><a href="#cb5-33" tabindex="-1"></a><span class="co">#&gt; 3 3 6 0.1935    0.1860</span></span>
-<span id="cb5-34"><a href="#cb5-34" tabindex="-1"></a><span class="co">#&gt; 4 5 8 0.4237    0.4192</span></span></code></pre></div>
+<span id="cb5-31"><a href="#cb5-31" tabindex="-1"></a><span class="co">#&gt; 1 1 8 0.1289    0.1308</span></span>
+<span id="cb5-32"><a href="#cb5-32" tabindex="-1"></a><span class="co">#&gt; 2 2 7 0.1682    0.1570</span></span>
+<span id="cb5-33"><a href="#cb5-33" tabindex="-1"></a><span class="co">#&gt; 3 3 6 0.1935    0.1754</span></span>
+<span id="cb5-34"><a href="#cb5-34" tabindex="-1"></a><span class="co">#&gt; 4 5 8 0.4237    0.4318</span></span></code></pre></div>
 <p>The first-order frequencies should agree within Monte Carlo error.
 Differences in the pairwise columns measure approximation error, not
 failure of the pivotal sampler. If that error is unacceptable, omit
@@ -657,7 +657,7 @@ wrapper is minimal. Here we wrap <code>UPtille</code> and
 <span id="cb6-23"><a href="#cb6-23" tabindex="-1"></a>pik <span class="ot">&lt;-</span> <span class="fu">inclusion_prob</span>(<span class="fu">c</span>(<span class="dv">2</span>, <span class="dv">3</span>, <span class="dv">4</span>, <span class="dv">5</span>, <span class="dv">6</span>, <span class="dv">7</span>, <span class="dv">8</span>, <span class="dv">9</span>), <span class="at">n =</span> <span class="dv">4</span>)</span>
 <span id="cb6-24"><a href="#cb6-24" tabindex="-1"></a>s <span class="ot">&lt;-</span> <span class="fu">unequal_prob_wor</span>(pik, <span class="at">method =</span> <span class="st">&quot;tille&quot;</span>)</span>
 <span id="cb6-25"><a href="#cb6-25" tabindex="-1"></a>s</span>
-<span id="cb6-26"><a href="#cb6-26" tabindex="-1"></a><span class="co">#&gt; Unequal prob WOR [tille] (n=4, N=8): 3 4 6 7</span></span>
+<span id="cb6-26"><a href="#cb6-26" tabindex="-1"></a><span class="co">#&gt; Unequal prob WOR [tille] (n=4, N=8): 4 5 6 8</span></span>
 <span id="cb6-27"><a href="#cb6-27" tabindex="-1"></a></span>
 <span id="cb6-28"><a href="#cb6-28" tabindex="-1"></a><span class="co"># Exact joint inclusion probabilities from UPtillepi2</span></span>
 <span id="cb6-29"><a href="#cb6-29" tabindex="-1"></a><span class="fu">round</span>(<span class="fu">joint_inclusion_prob</span>(s), <span class="dv">4</span>)</span>
@@ -716,7 +716,7 @@ custom name:</p>
 <span id="cb7-24"><a href="#cb7-24" tabindex="-1"></a>hits <span class="ot">&lt;-</span> <span class="fu">expected_hits</span>(<span class="fu">c</span>(<span class="dv">2</span>, <span class="dv">3</span>, <span class="dv">5</span>, <span class="dv">10</span>), <span class="at">n =</span> <span class="dv">4</span>)</span>
 <span id="cb7-25"><a href="#cb7-25" tabindex="-1"></a>s_wr <span class="ot">&lt;-</span> <span class="fu">unequal_prob_wr</span>(hits, <span class="at">method =</span> <span class="st">&quot;custom_multinomial&quot;</span>)</span>
 <span id="cb7-26"><a href="#cb7-26" tabindex="-1"></a>s_wr</span>
-<span id="cb7-27"><a href="#cb7-27" tabindex="-1"></a><span class="co">#&gt; Unequal prob WR [custom_multinomial] (n=4, N=4): 4 3 4 4</span></span>
+<span id="cb7-27"><a href="#cb7-27" tabindex="-1"></a><span class="co">#&gt; Unequal prob WR [custom_multinomial] (n=4, N=4): 4 4 4 3</span></span>
 <span id="cb7-28"><a href="#cb7-28" tabindex="-1"></a><span class="fu">joint_expected_hits</span>(s_wr)</span>
 <span id="cb7-29"><a href="#cb7-29" tabindex="-1"></a><span class="co">#&gt;      [,1] [,2] [,3] [,4]</span></span>
 <span id="cb7-30"><a href="#cb7-30" tabindex="-1"></a><span class="co">#&gt; [1,] 0.52 0.18 0.30  0.6</span></span>
@@ -762,7 +762,7 @@ which is exactly what the built-in method uses.</p>
 <span id="cb8-16"><a href="#cb8-16" tabindex="-1"></a>x <span class="ot">&lt;-</span> <span class="fu">matrix</span>(<span class="fu">c</span>(<span class="dv">10</span>, <span class="dv">20</span>, <span class="dv">15</span>, <span class="dv">25</span>, <span class="dv">30</span>, <span class="dv">35</span>, <span class="dv">40</span>, <span class="dv">45</span>))</span>
 <span id="cb8-17"><a href="#cb8-17" tabindex="-1"></a>s <span class="ot">&lt;-</span> <span class="fu">balanced_wor</span>(pik, <span class="at">aux =</span> x, <span class="at">method =</span> <span class="st">&quot;cube_lp&quot;</span>)</span>
 <span id="cb8-18"><a href="#cb8-18" tabindex="-1"></a>s</span>
-<span id="cb8-19"><a href="#cb8-19" tabindex="-1"></a><span class="co">#&gt; Balanced WOR [cube_lp] (n=4, N=8): 1 4 7 8</span></span>
+<span id="cb8-19"><a href="#cb8-19" tabindex="-1"></a><span class="co">#&gt; Balanced WOR [cube_lp] (n=4, N=8): 5 6 7 8</span></span>
 <span id="cb8-20"><a href="#cb8-20" tabindex="-1"></a></span>
 <span id="cb8-21"><a href="#cb8-21" tabindex="-1"></a><span class="co"># Balancing check: HT estimate of the aux total vs the true total</span></span>
 <span id="cb8-22"><a href="#cb8-22" tabindex="-1"></a><span class="fu">colSums</span>(x[s<span class="sc">$</span>sample, , <span class="at">drop =</span> <span class="cn">FALSE</span>] <span class="sc">/</span> pik[s<span class="sc">$</span>sample]) <span class="sc">-</span> <span class="fu">colSums</span>(x)</span>

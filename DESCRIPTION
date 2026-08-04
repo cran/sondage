@@ -1,7 +1,7 @@
 Package: sondage
 Type: Package
 Title: Survey Sampling Algorithms
-Version: 0.9.0
+Version: 0.9.1
 Authors@R: c(person(given = "Ahmadou",
                     family = "Dicko",
 	            email = "mail@ahmadoudicko.com",
@@ -42,7 +42,7 @@ Suggests: knitr, rmarkdown, sampling, testthat (>= 3.0.0)
 VignetteBuilder: knitr
 Config/testthat/edition: 3
 Config/roxygen2/version: 8.0.0
-Packaged: 2026-07-23 19:39:11 UTC; ahmadou
+Packaged: 2026-08-04 19:16:34 UTC; ahmadou
 Author: Ahmadou Dicko [aut, cre] (ORCID:
     <https://orcid.org/0000-0002-9654-7582>),
   Thomas Lumley [ctb],
@@ -50,4 +50,4 @@ Author: Ahmadou Dicko [aut, cre] (ORCID:
     >= 2) cube implementation from which src/cube.c was ported)
 Maintainer: Ahmadou Dicko <mail@ahmadoudicko.com>
 Repository: CRAN
-Date/Publication: 2026-08-03 18:00:13 UTC
+Date/Publication: 2026-08-04 23:20:02 UTC

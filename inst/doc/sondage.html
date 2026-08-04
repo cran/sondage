@@ -495,8 +495,10 @@ Poisson Sampling <span class="citation">(CPS, Chen, Dempster, and Liu
 <span id="cb8-6"><a href="#cb8-6" tabindex="-1"></a><span class="fu">inclusion_prob</span>(s)  <span class="co"># extract the stored design-defining target pik</span></span>
 <span id="cb8-7"><a href="#cb8-7" tabindex="-1"></a><span class="co">#&gt; [1] 0.3333333 0.6666667 0.1666667 1.0000000 0.8333333</span></span></code></pre></div>
 <p>Other fixed-size methods include <code>&quot;brewer&quot;</code> (draw-by-draw,
-order-invariant), <code>&quot;sampford&quot;</code> <span class="citation">(Sampford 1967)</span>,
-“systematic”<code>(O(N), implicit stratification),</code>“sps”<code>[Sequential Poisson sampling, @ohlsson1998, supports PRN], and</code>“pareto”<code>[Pareto sampling, @rosen1997, supports PRN]. The</code>“poisson”`
+order-invariant), <code>&quot;sampford&quot;</code> <span class="citation">(Sampford 1967)</span>, <code>&quot;systematic&quot;</code>
+(O(N), implicit stratification), <code>&quot;sps&quot;</code> <span class="citation">(Sequential Poisson sampling, Ohlsson 1998, supports
+PRN)</span>, and <code>&quot;pareto&quot;</code> <span class="citation">(Pareto
+sampling, Rosén 1997, supports PRN)</span>. The <code>&quot;poisson&quot;</code>
 method produces a random sample size.</p>
 <p>For <code>sps</code> and <code>pareto</code>,
 <code>inclusion_prob(s)</code> still returns the stored target
