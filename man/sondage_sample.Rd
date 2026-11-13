@@ -12,12 +12,16 @@ the design-defining quantities needed by the query generics.
 All \code{sondage_sample} objects contain:
 \describe{
 \item{\verb{$sample}}{Sample indices (integer vector, or matrix/list
-when \code{nrep > 1}).}
+when \code{nrep > 1}). Built-in without-replacement methods return the
+indices in ascending order, except \code{equal_prob_wor(method = "srs")},
+which keeps the order drawn by \code{\link[=sample.int]{sample.int()}}. With-replacement
+methods and registered methods keep the order in which their
+sampler returns the units.}
 \item{\verb{$n}}{Sample size. For designs with \verb{$fixed_size = TRUE}, an
 integer equal to the realized sample size. For random-size designs
 (\verb{$fixed_size = FALSE}), a double equal to the expected sample size:
-\code{sum(pik)} for \code{"poisson"}, the user-supplied target for
-\code{"bernoulli"}.}
+\code{sum(pik)} for \code{"poisson"} and for registered methods with
+\code{fixed_size = FALSE}, the user-supplied target for \code{"bernoulli"}.}
 \item{\verb{$N}}{Population size.}
 \item{\verb{$method}}{Sampling method name.}
 \item{\verb{$fixed_size}}{Whether the sample size is fixed by design.}
@@ -44,8 +48,8 @@ The class vector records the design family:
 \item{\code{c("unequal_prob", "wor", "sondage_sample")}}{Unequal probability, without replacement.}
 \item{\code{c("balanced", "unequal_prob", "wor", "sondage_sample")}}{Balanced
 or spatially balanced sampling, including cube, LPM2, SCPS, and
-registered methods; dispatches to \code{unequal_prob} / \code{wor} methods
-unless a \code{balanced}-specific method is defined.}
+registered methods. Dispatch falls through to \code{unequal_prob} /
+\code{wor} methods unless a \code{balanced}-specific method is defined.}
 \item{\code{c("unequal_prob", "wr", "sondage_sample")}}{Unequal probability, with replacement.}
 }
 }

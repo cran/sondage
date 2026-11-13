@@ -4,53 +4,14 @@
  * - C_cps_jip: Exact CPS joint probabilities (Aires' formula)
  * - C_sampford_jip: Exact Sampford joint probabilities
  * - C_up_systematic_jip: Exact systematic sampling joint probabilities
+ * - C_wr_systematic_jeh: Exact joint expected hits of systematic_mr
  * - C_high_entropy_jip: High entropy approximation (equation 18, Brewer & Donadio 2003)
  */
 
 #include "cps_core.h"
+#include "systematic_core.h"
 #include <float.h>
 #include <R_ext/Utils.h>
-
-/*
- * Exact CPS joint probability for one pair of valid units (i, j),
- * computed in the probability domain:
- *
- *   pi_ij = p_i * p_j * P(W \ {i,j} selects n-2) / P(W selects n)
- *
- * with p_k = w_k / (1 + w_k). The numerator is a fresh forward
- * Poisson-binomial recurrence excluding units i and j: O(N * n) time,
- * O(n) workspace, and no subtraction of near-equal quantities. (The
- * previous leave-one/two-out polynomial division cancelled
- * catastrophically for repeated weights and produced NaN at N ~ 800.)
- *
- * buf must hold n + 1 doubles. f_n = P(W selects n) from the
- * calibration table; it is never small because calibration centers the
- * unconditional Poisson-binomial distribution on n.
- */
-static double cps_pair_exact(const double *w, int N, int n,
-                             int i, int j, double f_n, double *buf) {
-    if (n < 2 || !(f_n > 0.0)) return 0.0;
-    const int m = n - 2;
-
-    memset(buf, 0, (size_t)(m + 1) * sizeof(double));
-    buf[0] = 1.0;
-    int zmax = 0;
-
-    for (int k = 0; k < N; k++) {
-        if (k == i || k == j) continue;
-        const double p = w[k] / (1.0 + w[k]);
-        const int zt = (zmax < m) ? zmax + 1 : m;
-        for (int z = zt; z >= 1; z--) {
-            buf[z] = (1.0 - p) * buf[z] + p * buf[z - 1];
-        }
-        buf[0] *= (1.0 - p);
-        zmax = zt;
-    }
-
-    const double p_i = w[i] / (1.0 + w[i]);
-    const double p_j = w[j] / (1.0 + w[j]);
-    return p_i * p_j * buf[m] / f_n;
-}
 
 /*
  * Group boundaries for weights sorted ascending: a new group starts
@@ -88,6 +49,202 @@ static double cps_pair_finalize(double v, double pik_i, double pik_j,
     if (pi_ij > pik_i) pi_ij = pik_i;
     if (pi_ij > pik_j) pi_ij = pik_j;
     return pi_ij;
+}
+
+/*
+ * Aires' identity for one pair, with the marginals implied by the odds.
+ * The operands are put in one order, the smaller odds first, so a pair
+ * gets the same value wherever it is computed. Where the compiler fuses
+ * a * b - c * d into a fused multiply-add (arm64, for one), swapping the
+ * two units changes the rounding, and the full and sampled-only matrices
+ * differed in the twelfth digit.
+ */
+static double cps_aires(const double *w, const double *marg, int i, int j) {
+    if (w[j] < w[i] || (w[j] == w[i] && j < i)) {
+        const int t = i;
+        i = j;
+        j = t;
+    }
+    return (w[j] * marg[i] - w[i] * marg[j]) / (w[j] - w[i]);
+}
+
+/* Odds w_lo <= w_hi closer than the relative gap. */
+static int cps_odds_near(double w_lo, double w_hi, double gap) {
+    return (w_hi - w_lo) <= gap * w_hi;
+}
+
+/* Add one unit with selection probability p to a Poisson-binomial table
+ * of the counts 0..m, truncated at m. */
+static void cps_pb_add(double *buf, int m, double p) {
+    for (int z = m; z >= 1; z--) {
+        buf[z] = (1.0 - p) * buf[z] + p * buf[z - 1];
+    }
+    buf[0] *= (1.0 - p);
+}
+
+/*
+ * Working-design pi of the units at odds positions a < b, given
+ * acc[z] = P(z of the units before a and between a and b) and the suffix
+ * table f (stride m + 1) of the positions in odds order.
+ */
+static double cps_sweep_pair(const double *acc, const double *f, int m,
+                             const double *ws, int a, int b, double f_n) {
+    const double *suf = f + (size_t)(b + 1) * (m + 1);
+    double v = 0.0;
+    for (int z = 0; z <= m; z++) v += acc[z] * suf[m - z];
+    const double pa = ws[a] / (1.0 + ws[a]);
+    const double pb = ws[b] / (1.0 + ws[b]);
+    return pa * pb * v / f_n;
+}
+
+/*
+ * Exact joint probabilities of the working CPS design for a set of target
+ * units, written to an ld x ld output through cps_pair_finalize().
+ *
+ * Pairs whose calibrated odds are well apart use Aires' identity
+ *
+ *   pi_ij = (w_j pi_i - w_i pi_j) / (w_j - w_i)
+ *
+ * with the marginals pi implied by the odds. The identity is exact for
+ * those, not for the targets, which calibration only meets to its
+ * tolerance, and the division by the gap amplified that residue. Its
+ * rounding error grows like DBL_EPSILON over the relative gap, so pairs
+ * closer than cbrt(DBL_EPSILON) take the subtraction-free form
+ *
+ *   pi_ij = p_i p_j P(n - 2 of U without i, j) / P(n of U),
+ *
+ * with p = w / (1 + w). With the units in odds order, U without i and j
+ * splits into the units before i, those between i and j, and those after
+ * j. A running prefix table covers the first, a suffix table the last,
+ * and stepping from i to j adds the middle, so a pair costs O(n) after
+ * an O(N n) pass, where a fresh recurrence per pair cost O(N n). Units
+ * with tied odds are exchangeable, so one value covers every pair of two
+ * tie groups.
+ *
+ * w and marg hold the N valid units in index order. f must hold
+ * CPS_TABLE_SIZE(N, n) doubles and is overwritten. f_n = P(n of U).
+ * Target t is valid unit tgt[t], written at output index row[t].
+ */
+static void cps_working_pairs(const double *w, double *f, int N, int n,
+                              const double *marg, double f_n,
+                              const int *tgt, int nt, const int *row,
+                              int ld, double *out,
+                              const double *pik_valid, int use_complement) {
+    if (nt < 2) return;
+    const double gap = cbrt(DBL_EPSILON);
+
+#define CPS_WRITE_PAIR(ta, tb, v) do {                                    \
+        const int va_ = tgt[ta], vb_ = tgt[tb];                           \
+        const double pi_ = cps_pair_finalize((v), pik_valid[va_],         \
+                                             pik_valid[vb_],              \
+                                             use_complement);             \
+        out[(size_t)row[tb] * ld + row[ta]] = pi_;                        \
+        out[(size_t)row[ta] * ld + row[tb]] = pi_;                        \
+    } while (0)
+
+
+    /* Population in odds order, its tie groups, and target positions */
+    double *ws = (double *) R_alloc(N, sizeof(double));
+    int *ord = (int *) R_alloc(N, sizeof(int));
+    memcpy(ws, w, (size_t)N * sizeof(double));
+    for (int k = 0; k < N; k++) ord[k] = k;
+    rsort_with_index(ws, ord, N);
+    int *pos = (int *) R_alloc(N, sizeof(int));
+    for (int k = 0; k < N; k++) pos[ord[k]] = k;
+
+    double *tp = (double *) R_alloc(nt, sizeof(double));
+    int *tpo = (int *) R_alloc(nt, sizeof(int));
+    for (int t = 0; t < nt; t++) {
+        tp[t] = (double) pos[tgt[t]];
+        tpo[t] = t;
+    }
+    rsort_with_index(tp, tpo, nt);
+
+    int any_near = 0;
+    if (n >= 2) {
+        for (int t = 1; t < nt && !any_near; t++) {
+            any_near = cps_odds_near(w[tgt[tpo[t - 1]]], w[tgt[tpo[t]]], gap);
+        }
+    }
+
+    if (!any_near) {
+        for (int a = 0; a < nt; a++) {
+            R_CheckUserInterrupt();
+            for (int b = a + 1; b < nt; b++) {
+                /* No two units are drawn together when n < 2. */
+                const double v =
+                    (n < 2) ? 0.0 : cps_aires(w, marg, tgt[a], tgt[b]);
+                CPS_WRITE_PAIR(a, b, v);
+            }
+        }
+        return;
+    }
+
+    int *gstart = (int *) R_alloc(N + 1, sizeof(int));
+    const int G = cps_weight_groups(ws, N, gstart);
+    int *grp = (int *) R_alloc(N, sizeof(int));
+    for (int g = 0; g < G; g++) {
+        for (int k = gstart[g]; k < gstart[g + 1]; k++) grp[k] = g;
+    }
+
+    /* Suffix table in odds order: f[k * S + z] = P(z of positions k..N-1) */
+    const int m = n - 2;
+    const int S = m + 1;
+    cps_compute_f(ws, N, m, f);
+
+    double *pre = (double *) R_alloc(S, sizeof(double));
+    double *acc = (double *) R_alloc(S, sizeof(double));
+    double *val = (double *) R_alloc(G, sizeof(double));
+    memset(pre, 0, (size_t)S * sizeof(double));
+    memset(val, 0, (size_t)G * sizeof(double));
+    pre[0] = 1.0;
+
+    int tcur = 0;
+    for (int g = 0; g < G; g++) {
+        R_CheckUserInterrupt();
+        const int gs = gstart[g], ge = gstart[g + 1];
+        const int t0 = tcur;
+        while (tcur < nt && (int) tp[tcur] < ge) tcur++;
+        const int t1 = tcur;
+
+        if (t1 > t0) {
+            /* One value per near group pair (g, h) */
+            int hmax = g;
+            memcpy(acc, pre, (size_t)S * sizeof(double));
+            if (ge - gs >= 2) {
+                val[0] = cps_sweep_pair(acc, f, m, ws, gs, gs + 1, f_n);
+            }
+            int cur = gs + 1;
+            for (int h = g + 1;
+                 h < G && cps_odds_near(ws[gs], ws[gstart[h]], gap); h++) {
+                const int hs = gstart[h];
+                while (cur < hs) {
+                    cps_pb_add(acc, m, ws[cur] / (1.0 + ws[cur]));
+                    cur++;
+                }
+                val[h - g] = cps_sweep_pair(acc, f, m, ws, gs, hs, f_n);
+                hmax = h;
+            }
+
+            for (int a = t0; a < t1; a++) {
+                const int ta = tpo[a];
+                for (int b = a + 1; b < nt; b++) {
+                    const int tb = tpo[b];
+                    const int hb = grp[pos[tgt[tb]]];
+                    const double v = (hb <= hmax)
+                        ? val[hb - g]
+                        : cps_aires(w, marg, tgt[ta], tgt[tb]);
+                    CPS_WRITE_PAIR(ta, tb, v);
+                }
+            }
+        }
+
+        for (int k = gs; k < ge; k++) {
+            cps_pb_add(pre, m, ws[k] / (1.0 + ws[k]));
+        }
+    }
+
+#undef CPS_WRITE_PAIR
 }
 
 SEXP C_cps_jip(SEXP pik_sexp) {
@@ -164,6 +321,23 @@ SEXP C_cps_jip(SEXP pik_sexp) {
     const int use_complement = (n_valid > N_valid - n_valid);
     const int n_work = use_complement ? (N_valid - n_valid) : n_valid;
 
+    /* The active units sum to their count within the input tolerance, so
+     * the complement design is empty and there is nothing to calibrate. */
+    if (n_work == 0) {
+        for (int i = 0; i < N_valid; i++) {
+            for (int jj = i + 1; jj < N_valid; jj++) {
+                const double pi_ij = cps_pair_finalize(
+                    0.0, pik_valid[i], pik_valid[jj], use_complement);
+                int k = valid_idx[i];
+                int l = valid_idx[jj];
+                pikl[(size_t)l * N_full + k] = pi_ij;
+                pikl[(size_t)k * N_full + l] = pi_ij;
+            }
+        }
+        UNPROTECT(1);
+        return result;
+    }
+
     double *pik_work = (double *) R_alloc(N_valid, sizeof(double));
     for (int i = 0; i < N_valid; i++) {
         pik_work[i] = use_complement ? (1.0 - pik_valid[i]) : pik_valid[i];
@@ -182,22 +356,23 @@ SEXP C_cps_jip(SEXP pik_sexp) {
     }
     (void) cal_worst_idx;
 
+    /* The table and the marginals the calibrated odds imply, which
+     * Aires' identity needs (see cps_working_pairs). */
+    cps_compute_f(w, N_valid, n_work, f);
     const double f_n = f[n_work]; /* row 0, column n_work */
+    double *marg = (double *) R_alloc(N_valid, sizeof(double));
+    double *pro = (double *) R_alloc(2 * (size_t)n_work, sizeof(double));
+    cps_compute_pik(w, f, N_valid, n_work, marg, pro);
 
-    /* Relative near-equality threshold for the Aires difference formula */
-    const double tau = 16.0 * sqrt(DBL_EPSILON);
-
-    /* Check if all weights are approximately equal */
+    /* Exactly tied odds: CPS reduces to SRS on the valid units */
     double w_min = w[0], w_max = w[0];
     for (int i = 1; i < N_valid; i++) {
         if (w[i] < w_min) w_min = w[i];
         if (w[i] > w_max) w_max = w[i];
     }
-    double w_scale = fmax(1.0, w_max);
-    int all_equal = (w_max - w_min) <= tau * w_scale;
+    int all_equal = (w_max - w_min) <= 64.0 * DBL_EPSILON * fmax(1.0, w_max);
 
     if (all_equal) {
-        /* All weights equal => CPS reduces to SRS on valid subset */
         double pi_ij = (double)n_valid * (n_valid - 1) /
                        ((double)N_valid * (N_valid - 1));
         for (int i = 0; i < N_valid; i++) {
@@ -212,67 +387,10 @@ SEXP C_cps_jip(SEXP pik_sexp) {
         return result;
     }
 
-    /* Sort valid units by calibrated weight and group exact ties. */
-    double *w_sorted = (double *) R_alloc(N_valid, sizeof(double));
-    int *ord = (int *) R_alloc(N_valid, sizeof(int));
-    memcpy(w_sorted, w, N_valid * sizeof(double));
-    for (int i = 0; i < N_valid; i++) ord[i] = i;
-    rsort_with_index(w_sorted, ord, N_valid);
-
-    int *gstart = (int *) R_alloc(N_valid + 1, sizeof(int));
-    const int G = cps_weight_groups(w_sorted, N_valid, gstart);
-
-    double *buf = (double *) R_alloc(n_work + 1, sizeof(double));
-
-    for (int g = 0; g < G; g++) {
-        R_CheckUserInterrupt();
-        for (int h = g; h < G; h++) {
-            const int gs = gstart[g], ge = gstart[g + 1];
-            const int hs = gstart[h], he = gstart[h + 1];
-            if (g == h && ge - gs < 2) continue;
-
-            const double w_lo = w_sorted[gs];
-            const double w_hi = w_sorted[hs];
-            const double scale = fmax(1.0, w_hi);
-            const int near = (w_hi - w_lo) <= tau * scale;
-
-            double v_block = 0.0;
-            if (near) {
-                /* One exact evaluation covers every pair in the block:
-                 * units within a group are exchangeable. */
-                const int rep_i = ord[gs];
-                const int rep_j = (g == h) ? ord[gs + 1] : ord[hs];
-                v_block = cps_pair_exact(w, N_valid, n_work,
-                                         rep_i, rep_j, f_n, buf);
-            }
-
-            for (int a = gs; a < ge; a++) {
-                const int b0 = (g == h) ? a + 1 : hs;
-                for (int b = b0; b < he; b++) {
-                    const int vi = ord[a];
-                    const int vj = ord[b];
-                    double v;
-                    if (near) {
-                        v = v_block;
-                    } else {
-                        /* Aires' identity; the block gap guarantees a
-                         * well-separated denominator. */
-                        const double r_i = w[vi];
-                        const double r_j = w[vj];
-                        v = (r_j * pik_work[vi] - r_i * pik_work[vj]) /
-                            (r_j - r_i);
-                    }
-                    const double pi_ij = cps_pair_finalize(
-                        v, pik_valid[vi], pik_valid[vj], use_complement);
-
-                    const int k = valid_idx[vi];
-                    const int l = valid_idx[vj];
-                    pikl[(size_t)l * N_full + k] = pi_ij;
-                    pikl[(size_t)k * N_full + l] = pi_ij;
-                }
-            }
-        }
-    }
+    int *tgt = (int *) R_alloc(N_valid, sizeof(int));
+    for (int i = 0; i < N_valid; i++) tgt[i] = i;
+    cps_working_pairs(w, f, N_valid, n_work, marg, f_n, tgt, N_valid,
+                      valid_idx, N_full, pikl, pik_valid, use_complement);
 
     UNPROTECT(1);
     return result;
@@ -366,6 +484,24 @@ SEXP C_cps_jip_sub(SEXP pik_sexp, SEXP idx_sexp) {
     const int use_complement = (n_valid > N_valid - n_valid);
     const int n_work = use_complement ? (N_valid - n_valid) : n_valid;
 
+    /* Empty complement design (see C_cps_jip). */
+    if (n_work == 0) {
+        for (int i = 0; i < n_s; i++) {
+            const int vi_i = pop_to_valid[idx_r[i] - 1];
+            if (vi_i < 0) continue;
+            for (int j = i + 1; j < n_s; j++) {
+                const int vi_j = pop_to_valid[idx_r[j] - 1];
+                if (vi_j < 0) continue;
+                const double pi_ij = cps_pair_finalize(
+                    0.0, pik_valid[vi_i], pik_valid[vi_j], use_complement);
+                pikl[(size_t)j * n_s + i] = pi_ij;
+                pikl[(size_t)i * n_s + j] = pi_ij;
+            }
+        }
+        UNPROTECT(1);
+        return result;
+    }
+
     double *pik_work = (double *) R_alloc(N_valid, sizeof(double));
     for (int i = 0; i < N_valid; i++) {
         pik_work[i] = use_complement ? (1.0 - pik_valid[i]) : pik_valid[i];
@@ -393,7 +529,13 @@ SEXP C_cps_jip_sub(SEXP pik_sexp, SEXP idx_sexp) {
     }
     (void) cal_worst_idx;
 
+    /* The table and the marginals the calibrated odds imply (see
+     * cps_working_pairs). */
+    cps_compute_f(w, N_valid, n_work, f);
     const double f_n = f[n_work]; /* row 0, column n_work */
+    double *marg = (double *) R_alloc(N_valid, sizeof(double));
+    double *pro = (double *) R_alloc(2 * (size_t)n_work, sizeof(double));
+    cps_compute_pik(w, f, N_valid, n_work, marg, pro);
 
     /* Identify target units: sampled AND valid */
     int n_target = 0;
@@ -419,20 +561,15 @@ SEXP C_cps_jip_sub(SEXP pik_sexp, SEXP idx_sexp) {
         }
     }
 
-    /* Relative near-equality threshold for the Aires difference formula */
-    const double tau = 16.0 * sqrt(DBL_EPSILON);
-
-    /* Check if all weights are approximately equal */
+    /* Exactly tied odds: CPS reduces to SRS on the valid units */
     double w_min = w[0], w_max = w[0];
     for (int i = 1; i < N_valid; i++) {
         if (w[i] < w_min) w_min = w[i];
         if (w[i] > w_max) w_max = w[i];
     }
-    double w_scale = fmax(1.0, w_max);
-    int all_equal = (w_max - w_min) <= tau * w_scale;
+    int all_equal = (w_max - w_min) <= 64.0 * DBL_EPSILON * fmax(1.0, w_max);
 
     if (all_equal) {
-        /* All weights equal => CPS reduces to SRS on valid subset */
         double pi_ij = (double)n_valid * (n_valid - 1) /
                        ((double)N_valid * (N_valid - 1));
         for (int i = 0; i < n_target; i++) {
@@ -447,73 +584,22 @@ SEXP C_cps_jip_sub(SEXP pik_sexp, SEXP idx_sexp) {
         return result;
     }
 
-    /* Sort target units by calibrated weight and group exact ties.
-     * Weights come from the full-population calibration; the exact
-     * pair evaluation also runs over the full valid population. */
-    double *wt = (double *) R_alloc(n_target, sizeof(double));
-    int *ordt = (int *) R_alloc(n_target, sizeof(int));
-    for (int t = 0; t < n_target; t++) {
-        wt[t] = w[tgt_vi[t]];
-        ordt[t] = t;
-    }
-    rsort_with_index(wt, ordt, n_target);
-
-    int *gstart = (int *) R_alloc(n_target + 1, sizeof(int));
-    const int G = cps_weight_groups(wt, n_target, gstart);
-
-    double *buf = (double *) R_alloc(n_work + 1, sizeof(double));
-
-    for (int g = 0; g < G; g++) {
-        R_CheckUserInterrupt();
-        for (int h = g; h < G; h++) {
-            const int gs = gstart[g], ge = gstart[g + 1];
-            const int hs = gstart[h], he = gstart[h + 1];
-            if (g == h && ge - gs < 2) continue;
-
-            const double w_lo = wt[gs];
-            const double w_hi = wt[hs];
-            const double scale = fmax(1.0, w_hi);
-            const int near = (w_hi - w_lo) <= tau * scale;
-
-            double v_block = 0.0;
-            if (near) {
-                const int rep_i = tgt_vi[ordt[gs]];
-                const int rep_j = (g == h) ? tgt_vi[ordt[gs + 1]]
-                                           : tgt_vi[ordt[hs]];
-                v_block = cps_pair_exact(w, N_valid, n_work,
-                                         rep_i, rep_j, f_n, buf);
-            }
-
-            for (int a = gs; a < ge; a++) {
-                const int b0 = (g == h) ? a + 1 : hs;
-                for (int b = b0; b < he; b++) {
-                    const int ta = ordt[a];
-                    const int tb = ordt[b];
-                    const int via = tgt_vi[ta];
-                    const int vib = tgt_vi[tb];
-                    double v;
-                    if (near) {
-                        v = v_block;
-                    } else {
-                        const double r_i = w[via];
-                        const double r_j = w[vib];
-                        v = (r_j * pik_work[via] - r_i * pik_work[vib]) /
-                            (r_j - r_i);
-                    }
-                    const double pi_ij = cps_pair_finalize(
-                        v, pik_valid[via], pik_valid[vib], use_complement);
-
-                    const int si = tgt_out[ta];
-                    const int sj = tgt_out[tb];
-                    pikl[(size_t)sj * n_s + si] = pi_ij;
-                    pikl[(size_t)si * n_s + sj] = pi_ij;
-                }
-            }
-        }
-    }
+    /* Odds come from the full-population calibration, and the exact
+     * near-pair form also runs over the full valid population. */
+    cps_working_pairs(w, f, N_valid, n_work, marg, f_n, tgt_vi, n_target,
+                      tgt_out, n_s, pikl, pik_valid, use_complement);
 
     UNPROTECT(1);
     return result;
+}
+
+/* Snap a pair value that rounding left just outside its valid bounds. */
+static double sampford_clamp_pair(double value, double pi, double pj) {
+    const double lo = fmax(0.0, pi + pj - 1.0);
+    const double hi = fmin(pi, pj);
+    if (value < lo && value > lo - 2e-12) return lo;
+    if (value > hi && value < hi + 2e-12) return hi;
+    return value;
 }
 
 /*
@@ -541,64 +627,94 @@ static double sampford_pair_direct(const double *p, const long double *q,
     }
     const long double raw = q[ii] * q[jj] *
         (((long double)m - p[ii] - p[jj]) * e[d] - g[d]);
-    return (double)(raw / normalizer);
+    return sampford_clamp_pair((double)(raw / normalizer), p[ii], p[jj]);
 }
 
-/* Exact pair value from a quadratic deletion of units i and j. */
+/*
+ * Build the polynomials E and G of all active units up to degree top, where
+ * E[r] sums prod(q) and G[r] sums prod(q) * sum(p) over subsets of size r.
+ * Returns 0 when a coefficient leaves the floating-point range.
+ */
+static int sampford_build_poly(const double *p, const long double *q, int N,
+                               int top, long double *E, long double *G) {
+    memset(E, 0, (size_t)(top + 1) * sizeof(long double));
+    memset(G, 0, (size_t)(top + 1) * sizeof(long double));
+    E[0] = 1.0L;
+    for (int i = 0; i < N; i++) {
+        const int t = (i + 1 < top) ? i + 1 : top;
+        for (int r = t; r >= 1; r--) {
+            G[r] += q[i] * (G[r - 1] + (long double)p[i] * E[r - 1]);
+            E[r] += q[i] * E[r - 1];
+        }
+    }
+    for (int r = 0; r <= top; r++) {
+        if (!isfinite(E[r]) || !isfinite(G[r])) return 0;
+    }
+    return 1;
+}
+
+/*
+ * Remove the factor of one unit from (E, G), returning degrees 0..upto.
+ * Deleting forward subtracts q * e[r - 1] from E[r], which cancels once that
+ * term dominates E[r], so forward deletion stops there. The remaining degrees
+ * come from degree top downward, where the same step does not cancel. A
+ * negative top means the polynomials stop short of their full degree, and the
+ * function then returns 0 if forward deletion could not reach upto.
+ */
+static int sampford_deflate(const long double *E, const long double *G,
+                            int top, long double qk, long double pk,
+                            long double *e, long double *g, int upto) {
+    e[0] = 1.0L;
+    g[0] = 0.0L;
+    int c = 0;
+    while (c < upto) {
+        const int r = c + 1;
+        const long double sub = qk * e[r - 1];
+        if (sub > 0.5L * E[r]) break;
+        e[r] = E[r] - sub;
+        g[r] = G[r] - qk * (g[r - 1] + pk * e[r - 1]);
+        c = r;
+    }
+    if (c < upto) {
+        if (top < 0) return 0;
+        long double en = 0.0L, gn = 0.0L;
+        for (int r = top; r >= c + 2; r--) {
+            const long double ep = (E[r] - en) / qk;
+            const long double gp = (G[r] - gn) / qk - pk * ep;
+            if (r - 1 <= upto) {
+                e[r - 1] = ep;
+                g[r - 1] = gp;
+            }
+            en = ep;
+            gn = gp;
+        }
+    }
+    return 1;
+}
+
+/*
+ * Pair value from (E1, G1), the polynomials that already exclude unit ii.
+ * top1 is their full degree, or negative when they stop short of it. Returns
+ * NAN when the deletion could not finish or the value is outside its bounds,
+ * and the caller then uses a slower route.
+ */
 static double sampford_pair_fast(const double *p, const long double *q,
-                                 const long double *E, const long double *G,
-                                 int N, int m, int ii, int jj,
+                                 const long double *E1, const long double *G1,
+                                 int top1, int m, int ii, int jj,
                                  long double normalizer,
                                  long double *e, long double *g) {
     const int d = m - 2;
-    e[0] = 1.0L;
-    g[0] = 0.0L;
-    const long double qi = q[ii], qj = q[jj];
-    const long double s1 = qi + qj;
-    const long double s2 = qi * qj;
-    const long double h1 = (long double)p[ii] * qi +
-                           (long double)p[jj] * qj;
-    const long double h2 = s2 * ((long double)p[ii] + p[jj]);
-
-    int bad = 0;
-    for (int r = 1; r <= d; r++) {
-        const long double em1 = e[r - 1];
-        const long double em2 = (r >= 2) ? e[r - 2] : 0.0L;
-        const long double gm1 = g[r - 1];
-        const long double gm2 = (r >= 2) ? g[r - 2] : 0.0L;
-        e[r] = E[r] - s1 * em1 - s2 * em2;
-        g[r] = G[r] - s1 * gm1 - s2 * gm2 - h1 * em1 - h2 * em2;
-        if (!isfinite(e[r]) || !isfinite(g[r]) ||
-            e[r] < -64.0L * LDBL_EPSILON * fabsl(E[r])) {
-            bad = 1;
-            break;
-        }
-        if (e[r] < 0.0L) e[r] = 0.0L;
-        if (g[r] < 0.0L &&
-            g[r] > -64.0L * LDBL_EPSILON * fmaxl(1.0L, fabsl(G[r]))) {
-            g[r] = 0.0L;
-        }
+    if (!sampford_deflate(E1, G1, top1, q[jj], (long double)p[jj], e, g, d)) {
+        return NAN;
     }
-
-    double value = NAN;
-    if (!bad) {
-        const long double raw = qi * qj *
-            (((long double)m - p[ii] - p[jj]) * e[d] - g[d]);
-        value = (double)(raw / normalizer);
-        const double lo = fmax(0.0, p[ii] + p[jj] - 1.0);
-        const double hi = fmin(p[ii], p[jj]);
-        const double tol = 2e-10 * fmax(1.0, hi);
-        if (!R_FINITE(value) || value < lo - tol || value > hi + tol) bad = 1;
-    }
-    if (bad) {
-        value = sampford_pair_direct(p, q, N, m, ii, jj, normalizer, e, g);
-    }
-
+    const long double raw = q[ii] * q[jj] *
+        (((long double)m - p[ii] - p[jj]) * e[d] - g[d]);
+    const double value = (double)(raw / normalizer);
     const double lo = fmax(0.0, p[ii] + p[jj] - 1.0);
     const double hi = fmin(p[ii], p[jj]);
-    if (value < lo && value > lo - 2e-12) value = lo;
-    if (value > hi && value < hi + 2e-12) value = hi;
-    return value;
+    const double tol = 2e-10 * fmax(1.0, hi);
+    if (!R_FINITE(value) || value < lo - tol || value > hi + tol) return NAN;
+    return sampford_clamp_pair(value, p[ii], p[jj]);
 }
 
 /*
@@ -736,20 +852,21 @@ static SEXP sampford_jip_impl(SEXP pik_sexp, const int *idx, int n_out) {
                (long double)m / scaled_sum;
     }
 
-    long double *E = R_allocLD((size_t) m + 1);
-    long double *G = R_allocLD((size_t) m + 1);
-    memset(E, 0, (size_t)(m + 1) * sizeof(long double));
-    memset(G, 0, (size_t)(m + 1) * sizeof(long double));
-    E[0] = 1.0L;
-    int seen = 0;
-    for (int i = 0; i < N; i++) {
-        int top = seen + 1;
-        if (top > m) top = m;
-        for (int r = top; r >= 1; r--) {
-            G[r] += q[i] * (G[r - 1] + (long double)p[i] * E[r - 1]);
-            E[r] += q[i] * E[r - 1];
-        }
-        seen++;
+    /*
+     * Degree m is enough while forward deletion stays stable, which keeps the
+     * cost at O(N * m) for a small sample from a large population. Degree N is
+     * built once, the first time a pair needs the backward path, unless the
+     * O(N^2) build would cost more than recomputing every pair directly.
+     */
+    const int d = m - 2;
+    const int can_extend = (double)N <= 0.5 * (double)n_out * n_out * d;
+    const size_t poly_len = (size_t)(can_extend ? N : m) + 1;
+    long double *E = R_allocLD(poly_len);
+    long double *G = R_allocLD(poly_len);
+    if (!sampford_build_poly(p, q, N, m, E, G)) {
+        UNPROTECT(1);
+        error("Sampford joint probabilities exceed the floating-point range "
+              "of this platform");
     }
     const long double normalizer = (long double)m * E[m] - G[m];
     if (!(normalizer > 0.0L) || !isfinite(normalizer)) {
@@ -757,21 +874,43 @@ static SEXP sampford_jip_impl(SEXP pik_sexp, const int *idx, int n_out) {
         error("Sampford joint-probability normalizer is non-finite");
     }
 
-    const int d = m - 2;
-    long double *e = R_allocLD((size_t) d + 1);
-    long double *g = R_allocLD((size_t) d + 1);
+    int full = 0;
+    long double *e = R_allocLD(poly_len);
+    long double *g = R_allocLD(poly_len);
+    long double *E1 = R_allocLD(poly_len);
+    long double *G1 = R_allocLD(poly_len);
 
     for (int a = 0; a < n_out; a++) {
         if ((a & 127) == 0) R_CheckUserInterrupt();
         const int ka = idx ? idx[a] - 1 : a;
         const int iact = pop_to_active[ka];
         if (iact < 0) continue;
+        int have1 = sampford_deflate(E, G, full ? N : -1, q[iact],
+                                     (long double)p[iact], E1, G1,
+                                     full ? N - 1 : d);
         for (int b = 0; b < a; b++) {
             const int kb = idx ? idx[b] - 1 : b;
             const int jact = pop_to_active[kb];
             if (jact < 0) continue;
-            double work_v = sampford_pair_fast(p, q, E, G, N, m,
-                                                iact, jact, normalizer, e, g);
+            double work_v = have1 ?
+                sampford_pair_fast(p, q, E1, G1, full ? N - 1 : -1, m,
+                                   iact, jact, normalizer, e, g) : NAN;
+            if (ISNAN(work_v) && !full && can_extend) {
+                if (!sampford_build_poly(p, q, N, N, E, G)) {
+                    UNPROTECT(1);
+                    error("Sampford joint probabilities exceed the "
+                          "floating-point range of this platform");
+                }
+                full = 1;
+                have1 = sampford_deflate(E, G, N, q[iact],
+                                         (long double)p[iact], E1, G1, N - 1);
+                work_v = sampford_pair_fast(p, q, E1, G1, N - 1, m,
+                                            iact, jact, normalizer, e, g);
+            }
+            if (ISNAN(work_v)) {
+                work_v = sampford_pair_direct(p, q, N, m, iact, jact,
+                                              normalizer, e, g);
+            }
             double v = work_v;
             if (use_complement) {
                 v = p_orig[iact] + p_orig[jact] - 1.0 + work_v;
@@ -964,6 +1103,92 @@ SEXP C_up_systematic_jip_sub(SEXP pik_sexp, SEXP idx_sexp) {
     return result;
 }
 
+/*
+ * Exact joint expected hits of systematic PPS with minimum replacement.
+ *
+ * With hits_k = m_k + I_k, where I is the walk over the scaled
+ * fractional parts, E(I_i) is the length g_i of unit i's arc and
+ * E(I_i I_j) the overlap pi_ij of the two arcs. Then
+ *
+ *   E(hits_i hits_j) = m_i m_j + m_i g_j + m_j g_i + pi_ij   (i != j)
+ *   E(hits_i^2)      = m_i^2 + 2 m_i g_i + g_i.
+ *
+ * The expanded form matters. Writing e_i e_j + pi_ij - g_i g_j instead
+ * subtracts two equal products when m_i = m_j = 0 and leaves residues of
+ * order 1e-18 where the answer is exactly 0, which hides structural
+ * zeros from sampling_cov(weighted = TRUE).
+ *
+ * The split, the scaling and the arc ends come from systematic_core.h,
+ * as in the draw, so both agree on every m_k and every arc. idx (1-based,
+ * length n_out) selects the sampled units, or is NULL for all N.
+ * O(N + n_out^2) time.
+ */
+static SEXP wr_systematic_jeh_impl(SEXP e_sexp, SEXP n_sexp,
+                                   const int *idx, int n_out) {
+    const int N = LENGTH(e_sexp);
+    const double *e = REAL(e_sexp);
+    const int n = asInteger(n_sexp);
+
+    int *m = (int *) R_alloc(N, sizeof(int));
+    double *f = (double *) R_alloc(N, sizeof(double));
+    double *lo = (double *) R_alloc(N, sizeof(double));
+    double *hi = (double *) R_alloc(N, sizeof(double));
+
+    const int n_frac = sys_split_hits(e, N, n, m, f);
+    if (n_frac < 0)
+        error("systematic_mr: expected hits do not add up to %d", n);
+
+    /* Arc of every active unit, built as the walk builds it */
+    const int last = sys_last_active(f, N);
+    double cs = 0.0;
+    for (int k = 0; k < N; k++) {
+        if (f[k] > 0.0) {
+            lo[k] = cs;
+            cs = sys_arc_end(cs, f, k, last, n_frac);
+            hi[k] = cs;
+        } else {
+            lo[k] = 0.0;
+            hi[k] = 0.0;
+        }
+    }
+
+    SEXP result = PROTECT(allocMatrix(REALSXP, n_out, n_out));
+    double *out = REAL(result);
+
+    for (int a = 0; a < n_out; a++) {
+        R_CheckUserInterrupt();
+        const int i = idx ? idx[a] - 1 : a;
+        const double mi = (double) m[i];
+        const double gi = hi[i] - lo[i];
+
+        out[(size_t) a * n_out + a] = mi * mi + 2.0 * mi * gi + gi;
+
+        for (int b = a + 1; b < n_out; b++) {
+            const int j = idx ? idx[b] - 1 : b;
+            const double mj = (double) m[j];
+            const double gj = hi[j] - lo[j];
+            const double pij = (gi > 0.0 && gj > 0.0)
+                ? circ_overlap(lo[i], hi[i], lo[j], hi[j])
+                : 0.0;
+            const double v = mi * mj + mi * gj + mj * gi + pij;
+            out[(size_t) b * n_out + a] = v;
+            out[(size_t) a * n_out + b] = v;
+        }
+    }
+
+    UNPROTECT(1);
+    return result;
+}
+
+SEXP C_wr_systematic_jeh(SEXP e_sexp, SEXP n_sexp) {
+    return wr_systematic_jeh_impl(e_sexp, n_sexp, NULL, LENGTH(e_sexp));
+}
+
+SEXP C_wr_systematic_jeh_sub(SEXP e_sexp, SEXP n_sexp, SEXP idx_sexp) {
+    return wr_systematic_jeh_impl(e_sexp, n_sexp, INTEGER(idx_sexp),
+                                  LENGTH(idx_sexp));
+}
+
 SEXP C_high_entropy_jip(SEXP pik_sexp, SEXP eps_sexp) {
     const int N_full = LENGTH(pik_sexp);
     const double *pik_full = REAL(pik_sexp);
@@ -978,14 +1203,15 @@ SEXP C_high_entropy_jip(SEXP pik_sexp, SEXP eps_sexp) {
         pikl[(size_t)k * N_full + k] = pik_full[k];
     }
 
-    /* Handle certainty units: pi_ij = pik[other] */
+    /* Certainty units: pi_ij is the smaller probability of the pair, so
+     * two near-certainty units do not depend on the processing order. */
     for (int k = 0; k < N_full; k++) {
         if (pik_full[k] >= 1.0 - eps) {
             for (int l = 0; l < N_full; l++) {
-                pikl[(size_t)k * N_full + l] = pik_full[l];
-                pikl[(size_t)l * N_full + k] = pik_full[l];
+                const double v = fmin(pik_full[k], pik_full[l]);
+                pikl[(size_t)k * N_full + l] = v;
+                pikl[(size_t)l * N_full + k] = v;
             }
-            pikl[(size_t)k * N_full + k] = pik_full[k];
         }
     }
 

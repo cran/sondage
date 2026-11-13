@@ -1,7 +1,7 @@
 Package: sondage
 Type: Package
 Title: Survey Sampling Algorithms
-Version: 0.9.1
+Version: 0.15.0
 Authors@R: c(person(given = "Ahmadou",
                     family = "Dicko",
 	            email = "mail@ahmadoudicko.com",
@@ -21,8 +21,8 @@ Description: Fast implementations of survey sampling algorithms for
     Provides equal probability methods (simple random sampling,
     systematic, Bernoulli), unequal probability methods (conditional
     Poisson / maximum entropy, Sampford, Brewer, systematic PPS, Pareto,
-    sequential Poisson, Poisson, Chromy's minimum replacement,
-    multinomial), balanced sampling via the cube method, and
+    sequential Poisson, Poisson, Chromy's sequential and systematic PPS
+    with minimum replacement, multinomial), balanced sampling via the cube method, and
     spatially balanced sampling via the local pivotal method and
     spatially correlated Poisson sampling.
     All sampling functions return design objects carrying sample
@@ -41,8 +41,8 @@ NeedsCompilation: yes
 Suggests: knitr, rmarkdown, sampling, testthat (>= 3.0.0)
 VignetteBuilder: knitr
 Config/testthat/edition: 3
-Config/roxygen2/version: 8.0.0
-Packaged: 2026-08-04 19:16:34 UTC; ahmadou
+Config/roxygen2/version: 8.1.1
+Packaged: 2026-11-13 09:51:51 UTC; ahmadou
 Author: Ahmadou Dicko [aut, cre] (ORCID:
     <https://orcid.org/0000-0002-9654-7582>),
   Thomas Lumley [ctb],
@@ -50,4 +50,4 @@ Author: Ahmadou Dicko [aut, cre] (ORCID:
     >= 2) cube implementation from which src/cube.c was ported)
 Maintainer: Ahmadou Dicko <mail@ahmadoudicko.com>
 Repository: CRAN
-Date/Publication: 2026-08-04 23:20:02 UTC
+Date/Publication: 2026-11-13 10:20:02 UTC

@@ -18,7 +18,7 @@ knitr::opts_chunk$set(
 
 ## Overview
 
-`sondage` ships with 16 built-in sampling methods, but researchers and agencies often need algorithms that are not included. The registration API lets you plug a custom unequal probability or balanced sampling method into the existing dispatchers and generics without modifying the package source.
+`sondage` ships with 17 built-in sampling methods across its five dispatchers, but researchers and agencies often need algorithms that are not included. The registration API lets you plug a custom unequal probability or balanced sampling method into the existing dispatchers and generics without modifying the package source.
 
 After registering a method, it participates in the same dispatcher and sample-object API as built-in methods. Joint-probability and covariance queries are available when the registration supplies a `joint_fn`.
 
@@ -35,7 +35,7 @@ register_method(
   joint_fn = NULL,          # function(pik/hits, sample_idx, ...) -> matrix
   fixed_size = TRUE,        # required for with-replacement methods
   variance_family = NULL,   # declared variance-estimation family (optional)
-  supports_prn = NULL,      # WOR/WR only: permanent random-number support?
+  supports_prn = NULL,      # permanent random-number support?
   supports_aux = NULL,      # balanced only: balancing-variable support?
   supports_strata = NULL,   # balanced only: stratification support?
   supports_spread = NULL,   # balanced only: spatial-spreading support?
@@ -50,11 +50,11 @@ The callback contracts are:
 - A balanced method uses **`sample_fn(pik, n = NULL, aux = NULL, ...)`**, where `aux` is the auxiliary balancing matrix passed to `balanced_wor()` (or `NULL`).
 - The optional joint callback follows the same naming distinction: **`joint_fn(pik, sample_idx = NULL, ...)`** returns joint inclusion probabilities for WOR and balanced methods, while **`joint_fn(hits, sample_idx = NULL, ...)`** returns joint expected hits for WR methods. It returns an $N \times N$ matrix when `sample_idx` is `NULL`, or the corresponding submatrix otherwise.
 
-The dispatcher validates that sample indices are finite integers in range and obey the replacement and sample-size rules. It also checks that joint results are finite numeric matrices with the expected dimensions and symmetry; statistical properties remain the method author's responsibility.
+The dispatcher validates that sample indices are finite integers in range and obey the replacement and sample-size rules. It also checks that joint results are finite numeric matrices with the expected dimensions and symmetry. Statistical properties remain the method author's responsibility.
 
-Capability flags describe what the method can do, and the dispatchers enforce them. `NULL` means unspecified: it resolves to `FALSE`, except that `supports_aux` resolves to `TRUE` for a balanced method. WOR and WR methods may explicitly set only `supports_prn`; balanced methods may explicitly set only `supports_aux`, `supports_strata`, and `supports_spread`. Supplying a capability for another method type is an error, even when its value is `FALSE`.
+Capability flags describe what the method can do, and the dispatchers enforce them. `NULL` means unspecified: it resolves to `FALSE`, except that `supports_aux` resolves to `TRUE` for a balanced method. Any method may set `supports_prn`. Only balanced methods may set `supports_aux`, `supports_strata`, and `supports_spread`, and supplying one of these for a WOR or WR method is an error, even when its value is `FALSE`.
 
-A `"wor"` or `"wr"` method that sets `supports_prn = TRUE` receives a validated `prn` vector for sample coordination. Otherwise supplying `prn` is an error. A `"balanced"` method only receives a `strata` argument when registered with `supports_strata = TRUE`, and a `spread` argument (spatial coordinates) when registered with `supports_spread = TRUE`. Spread-only methods that never look at balancing variables should declare `supports_aux = FALSE`. In every case, passing a design input to a method without the matching capability is an error, because silently dropping `prn`, `aux`, `strata`, or `spread` would change the requested design. The simplest balanced registration therefore needs nothing beyond `aux`. The cube method's `bounds` interface is currently built-in only, registered balanced methods cannot opt into `bounds`.
+A method that sets `supports_prn = TRUE` receives a validated `prn` vector for sample coordination. Otherwise supplying `prn` is an error. A `"balanced"` method only receives a `strata` argument when registered with `supports_strata = TRUE`, a `spread` argument (spatial coordinates) when registered with `supports_spread = TRUE`, and a `prn` argument when registered with `supports_prn = TRUE` and the caller supplies one. Declare each of them with a `NULL` default. Spread-only methods that never look at balancing variables should declare `supports_aux = FALSE`. In every case, passing a design input to a method without the matching capability is an error, because silently dropping `prn`, `aux`, `strata`, or `spread` would change the requested design. The simplest balanced registration therefore needs nothing beyond `aux`. The cube method's `bounds` interface is currently built-in only, registered balanced methods cannot opt into `bounds`.
 
 `variance_family` declares how design-based variance should be estimated for samples drawn with the method: `"srs"`, `"pps_brewer"`, `"poisson"`, `"wr"`, or `"unsupported"`. `sondage` does not use it itself, but packages that export samples for variance estimation do. Without a declaration they must infer a treatment from `type` and `fixed_size`, and for a random-size WOR method no safe inference exists because a Poisson-type method (independent selections) and a correlated random-size scheme need different estimators. The declaration is an assertion the author is responsible for and `?register_method` lists the constraints between `variance_family`, `type`, and `fixed_size`, and Example 1 shows how to check a declaration by simulation. When in doubt, declare `"unsupported"` rather than guess.
 
@@ -223,8 +223,8 @@ unregister_method("tille")
 ## Example 3: A custom with-replacement method
 
 With-replacement callbacks receive expected hits rather than inclusion
-probabilities. The sample callback returns `n` indices and may repeat units;
-the joint callback returns $E(N_iN_j)$, not joint inclusion probabilities.
+probabilities. The sample callback returns `n` indices and may repeat units,
+and the joint callback returns $E(N_iN_j)$, not joint inclusion probabilities.
 This example reproduces a multinomial PPS design under a custom name:
 
 ```{r custom-wr}
@@ -276,9 +276,9 @@ Note two conventions. The wrapper receives `aux` exactly as the
 caller supplied it (validated, but without the sample-size
 constraint prepended), so we `cbind(pik, aux)` ourselves because
 `samplecube()` expects the size constraint as a balancing column.
-And since the cube method produces a high-entropy design, we can
-pass `he_jip` as the `joint_fn`, which is exactly what the built-in
-method uses.
+We also pass `he_jip` as the `joint_fn`, which is exactly what the
+built-in method uses. Like the built-in, this approximation depends only
+on `pik` and ignores the balancing constraints.
 
 ```{r cube-lp, eval = requireNamespace("sampling", quietly = TRUE)}
 cube_lp_sample <- function(pik, n = NULL, aux = NULL, ...) {
@@ -358,7 +358,7 @@ the coordinate matrix that the caller passes to
 `balanced_wor(pik, spread = , method = "scps")`. Here we register
 its sibling LPM1 [@grafstrom2012], which differs only in the pair
 rule: a random undecided unit competes with its nearest undecided
-neighbour *only when the two are mutual nearest neighbours*,
+neighbor *only when the two are mutual nearest neighbors*,
 giving slightly better spread at extra cost. The in-house SCPS core uses
 the maximal-weight rule of @grafstrom2012scps with a weighted quickselect
 distance cutoff. Methods not shipped in `sondage`, such as local cube, can
@@ -366,6 +366,9 @@ still be supplied through the same registration contract.
 
 ```{r lpm1-fn}
 lpm1_sample <- function(pik, n = NULL, aux = NULL, spread = NULL, ...) {
+  if (is.null(spread)) {
+    stop("method 'lpm1' requires 'spread'", call. = FALSE)
+  }
   d <- as.matrix(dist(spread))
   diag(d) <- Inf
   p <- pik
@@ -384,7 +387,7 @@ lpm1_sample <- function(pik, n = NULL, aux = NULL, spread = NULL, ...) {
     j <- v[which.min(d[i, v])]
     w <- u[u != j]
     if (w[which.min(d[j, w])] != i) {
-      next # not mutual nearest neighbours: redraw i
+      next # not mutual nearest neighbors: redraw i
     }
     s <- p[i] + p[j]
     if (s > 1) {
@@ -424,6 +427,9 @@ on auxiliary totals, a custom method in this family is registered with
 `supports_aux = FALSE`.
 A caller who passes `aux` then gets an immediate error instead of a
 sample that silently ignored the requested balancing constraints.
+The flags state what a method can use, not what it requires, so
+`balanced_wor()` still calls `sample_fn` when `spread` is missing. A method
+that cannot work without `spread` checks for it, as `lpm1_sample()` does.
 
 ```{r lpm1-run}
 set.seed(25)
@@ -434,7 +440,7 @@ pik <- rep(0.15, N)
 s <- balanced_wor(pik, spread = coords, method = "lpm1")
 s
 
-# Spread diagnostic: mean distance to the nearest sampled neighbour
+# Spread diagnostic: mean distance to the nearest sampled neighbor
 # (larger is better spread)
 nn_dist <- function(idx) {
   d <- as.matrix(dist(coords[idx, ]))
@@ -457,7 +463,7 @@ approximation does not apply, since spreading deliberately drives
 nearby joint probabilities toward zero), so `joint_fn` is usually
 left as `NULL` and `joint_inclusion_prob()` / `sampling_cov()`
 will error for these methods. In practice, variance for spatially
-balanced samples is estimated with local-neighbourhood estimators
+balanced samples is estimated with local-neighborhood estimators
 such as the local mean estimator of @grafstrom2014, which `sondage`
 does not implement yet.
 
@@ -471,33 +477,33 @@ A `joint_fn` is optional but enables `joint_inclusion_prob()`,
 `joint_expected_hits()`, and `sampling_cov()`. Five common
 strategies:
 
-1. **Exact formula.** When the design has a known closed form
+1. An exact formula, when the design has a known closed form
    (e.g., `UPtillepi2` above).
 
-2. **`he_jip()`.** The high-entropy approximation
+2. `he_jip()`, the high-entropy approximation
    [@brewer2003]. Best for maximum-entropy and high-entropy
    designs (Sampford, Tillé, and most $\pi$ps procedures). Uses
-   optimised C code internally. Pass it directly:
+   optimized C code internally. Pass it directly:
    `joint_fn = he_jip`.
 
-3. **`hajek_jip()`.** The Hajek [-@hajek1964] approximation
+3. `hajek_jip()`, the Hajek [-@hajek1964] approximation
    based on conditional Poisson (rejective) sampling theory.
    Simpler formula and slightly cheaper, but generally a bit
    less accurate than `he_jip()`. Best when the design is
    obtained by conditioning independent Poisson trials on the
    sample size. Pass it directly: `joint_fn = hajek_jip`.
 
-4. **Other approximations**. Other methods exist in the literature and can be
-   implemented as custom `joint_fn` functions. @tille1996 reviews
+4. Another approximation from the literature, written as a custom
+   `joint_fn`. @tille1996 reviews
    several alternatives, including approximations based on
    Poisson, rejective, and successive sampling theory, each with
-   different accuracy--computation trade-offs. Any function that
+   different accuracy and computation trade-offs. Any function that
    accepts `(pik, sample_idx = NULL, ...)` and returns a symmetric
    matrix is a valid `joint_fn`.
 
-5. **Monte Carlo estimation.** Resample $B$ times and estimate
+5. Monte Carlo estimation, which resamples $B$ times and estimates
    $\hat{\pi}_{ij} = B^{-1} \sum_{b=1}^B I(i \in S_b)\, I(j \in S_b)$.
-   Slow but universal:
+   It is slow but works for any design.
 
 ```{r mc-joint, eval = FALSE}
 mc_joint <- function(pik, sample_idx = NULL, ..., B = 5000) {
@@ -508,10 +514,9 @@ mc_joint <- function(pik, sample_idx = NULL, ..., B = 5000) {
     s <- my_sampler(pik, n = n)
     co[s, s] <- co[s, s] + 1
   }
+  # The diagonal of co / B estimates pik from the same draws. When the
+  # design gives pik exactly, diag(pikl) <- pik replaces the estimate.
   pikl <- co / B
-  diag(pikl) <- tabulate(unlist(
-    replicate(B, my_sampler(pik, n = n), simplify = FALSE)
-  ), nbins = N) / B
   if (!is.null(sample_idx)) {
     pikl <- pikl[sample_idx, sample_idx, drop = FALSE]
   }

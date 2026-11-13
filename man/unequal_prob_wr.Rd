@@ -6,7 +6,7 @@
 \usage{
 unequal_prob_wr(
   hits,
-  method = c("chromy", "multinomial"),
+  method = c("chromy", "multinomial", "systematic_mr"),
   nrep = 1L,
   prn = NULL,
   ...
@@ -15,18 +15,32 @@ unequal_prob_wr(
 \arguments{
 \item{hits}{A numeric vector of expected hits (expected number of
 selections per unit). Typically computed via \code{\link[=expected_hits]{expected_hits()}}.
-\code{sum(hits)} must be close to a positive integer.}
+\code{sum(hits)} is the sample size, so it must be a whole number of at
+least 1 to floating-point accuracy. Looser sums are rejected rather
+than silently rounded.}
 
 \item{method}{The sampling method:
 \describe{
 \item{\code{"chromy"}}{Chromy's (1979) sequential PPS with minimum
-replacement. Default method in SAS SURVEYSELECT. Pairwise
-expectations \eqn{E(n_i n_j)} are estimated by simulation.
+replacement. Pairwise expectations \eqn{E(n_i n_j)} are
+estimated by simulation.
 See \code{\link[=joint_expected_hits]{joint_expected_hits()}}. Complexity: O(N + n).}
 \item{\code{"multinomial"}}{Multinomial PPS (independent draws).
 Units can be selected any number of times. Pairwise expectations
 are exact: \eqn{E(n_i n_j) = n(n-1) p_i p_j}.
 Complexity: O(n).}
+\item{\code{"systematic_mr"}}{Systematic PPS with minimum replacement
+(Madow, 1949), the design of \code{METHOD=PPS_SYS} in SAS
+SURVEYSELECT. One random start walks the cumulated expected hits in the order of
+\code{hits}, which acts as implicit stratification. Each unit receives
+the whole part of its expected hits or one more. Unlike
+\code{unequal_prob_wor(method = "systematic")}, which takes a unit
+larger than the sampling interval once, with certainty, this
+method hits it once per interval it spans. When every expected
+hit is below 1, both draw the same units from the same seed.
+Pairwise expectations are exact, and some are zero for units
+that are never selected together. See \code{\link[=sampling_cov]{sampling_cov()}}.
+Complexity: O(N + n), since the sample lists each hit.}
 }}
 
 \item{nrep}{Number of replicate samples (default 1).}
@@ -57,6 +71,11 @@ s <- unequal_prob_wr(hits, method = "chromy")
 s$sample
 s$hits
 
+# A unit larger than the sampling interval can be hit twice
+hits <- expected_hits(c(40, 80, 50, 60, 270), n = 3)
+s <- unequal_prob_wr(hits, method = "systematic_mr")
+s$hits
+
 }
 \references{
 Chromy, J.R. (1979). Sequential sample selection methods.
@@ -65,6 +84,9 @@ Chromy, J.R. (1979). Sequential sample selection methods.
 Chromy, J.R. (2009). Some generalizations of the Horvitz-Thompson
 estimator. \emph{Proceedings of the Survey Research Methods Section,
 American Statistical Association}.
+
+Madow, W.G. (1949). On the theory of systematic sampling, II.
+\emph{Annals of Mathematical Statistics}, 20(3), 333-354.
 }
 \seealso{
 \code{\link[=unequal_prob_wor]{unequal_prob_wor()}} for without-replacement designs,

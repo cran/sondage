@@ -62,7 +62,8 @@
 
 .wr_specs <- list(
   chromy = list(fixed_size = TRUE, prn = FALSE, variance_family = "wr"),
-  multinomial = list(fixed_size = TRUE, prn = FALSE, variance_family = "wr")
+  multinomial = list(fixed_size = TRUE, prn = FALSE, variance_family = "wr"),
+  systematic_mr = list(fixed_size = TRUE, prn = FALSE, variance_family = "wr")
 )
 
 .ep_wor_specs <- list(
@@ -94,7 +95,7 @@
   ),
   scps = list(
     fixed_size = TRUE,
-    prn = FALSE,
+    prn = TRUE,
     aux = FALSE,
     strata = FALSE,
     spread = TRUE,
@@ -138,8 +139,8 @@
 # Spans wor + balanced; used in joint_inclusion_prob.wor marginal defect check.
 .he_jip_methods <- c("brewer", "sps", "pareto", "cube")
 
-# Methods with C-level batch optimisation (workspace reuse).
-.batch_optimised_methods <- "cps"
+# Methods with C-level batch optimization (workspace reuse).
+.batch_optimized_methods <- "cps"
 
 #' Look up the spec for a built-in method.
 #'
@@ -178,8 +179,8 @@
 #'   `type` (`"wor"`, `"wr"`, or `"balanced"`), `fixed_size` (logical),
 #'   `variance_family` (one of
 #'   `"srs"`, `"pps_brewer"`, `"poisson"`, `"wr"`, `"unsupported"`, or
-#'   `NULL` for a registered method that did not declare one; see
-#'   [register_method()]), `supports_prn` (logical), `supports_aux`
+#'   `NULL` for a registered method that did not declare one, as
+#'   [register_method()] describes), `supports_prn` (logical), `supports_aux`
 #'   (logical), `supports_strata` (logical), `supports_spread`
 #'   (logical), and `probabilities` (where the method sits in the
 #'   first-order probability taxonomy: `"exact"` for every built-in

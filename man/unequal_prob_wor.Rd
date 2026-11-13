@@ -24,32 +24,34 @@ are sampled as given.}
 
 \item{method}{The sampling method:
 \describe{
-\item{\code{"cps"}}{Conditional Poisson Sampling (maximum entropy;
-Chen et al., 1994). Fixed size, exact joint probabilities
-with all \eqn{\pi_{ij} > 0}. Calibration and the conditional
+\item{\code{"cps"}}{Conditional Poisson Sampling (maximum entropy,
+Chen et al., 1994). Fixed size, exact joint probabilities.
+Two units with probabilities strictly between 0 and 1 have
+\eqn{\pi_{ij} > 0}{pi_ij > 0} when the design selects at least two
+such units. Calibration and the conditional
 probability table are O(Nn) (probability-domain
 Poisson-binomial recurrence), each draw is O(N) thereafter.
 Equal \code{pik} are drawn directly as SRS.}
 \item{\code{"sampford"}}{Sampford's (1967) fixed-size PPS design.
 Gives the supplied first-order inclusion probabilities exactly
 and has exact joint inclusion probabilities. A native C kernel
-combines the fast rejection construction with Grafstrom's
-non-rejective conditional-Poisson fallback and draws the smaller
-of the sample and its complement. Typical O(N + n); O(Nn) in the
-fallback.}
+combines the fast rejection construction with
+\enc{Grafström}{Grafstrom}'s non-rejective conditional-Poisson
+fallback and draws the smaller of the sample and its complement.
+Typical O(N + n), and O(Nn) in the fallback.}
 \item{\code{"brewer"}}{Brewer's (1975) draw-by-draw method. Fixed
 size, approximate joint probabilities (high-entropy
-approximation; see \code{\link[=joint_inclusion_prob]{joint_inclusion_prob()}}). O(Nn).}
+approximation, see \code{\link[=joint_inclusion_prob]{joint_inclusion_prob()}}). O(Nn).}
 \item{\code{"systematic"}}{Systematic PPS. Fixed size, exact joint
 probabilities but \strong{some may be zero} (pairs that never
 co-occur), making the SYG estimator inapplicable. See
 \code{\link[=sampling_cov]{sampling_cov()}}. O(N).}
 \item{\code{"poisson"}}{Poisson sampling. \strong{Random} sample
 size (expected \eqn{n = \sum \pi_k}). Units selected
-independently, so \eqn{\pi_{ij} = \pi_i \pi_j}. Supports
+independently, so \eqn{\pi_{ij} = \pi_i \pi_j}{pi_ij = pi_i pi_j}. Supports
 PRN. O(N).}
 \item{\code{"sps"}}{Sequential Poisson Sampling (Ohlsson, 1998).
-Order sampling with key \eqn{\xi_k = u_k / \pi_k}; the
+Order sampling with key \eqn{\xi_k = u_k / \pi_k}, where the
 \eqn{n} smallest are selected. Fixed size, high-entropy.
 Supports PRN. Approximate joint probabilities. The true
 first-order inclusion probabilities are approximately equal
@@ -76,24 +78,25 @@ for coordinated repeated sampling.}
 
 \item{...}{Additional arguments passed to methods registered via
 \code{\link[=register_method]{register_method()}}. Built-in methods take no additional
-arguments; the former \code{eps} boundary-trimming argument was
+arguments. The former \code{eps} boundary-trimming argument was
 removed because it silently changed the design.}
 }
 \value{
 An object of class \code{c("unequal_prob", "wor", "sondage_sample")}.
 When \code{nrep = 1}, \verb{$sample} is an integer vector of selected unit indices.
 When \code{nrep > 1}, \verb{$sample} is a matrix (n x nrep) for fixed-size methods,
-or a list of integer vectors of varying lengths for random-size methods (\code{"poisson"}).
+or a list of integer vectors of varying lengths for random-size methods
+(\code{"poisson"} and registered methods with \code{fixed_size = FALSE}).
 \verb{$n} is an integer for fixed-size methods (realized size) and a
-double for \code{"poisson"} (expected size, \code{sum(pik)}). See
+double for random-size methods (expected size, \code{sum(pik)}). See
 \link{sondage_sample}.
 }
 \description{
 Draws a sample with unequal inclusion probabilities, without replacement.
 }
-\details{
-\strong{Near-certainty inclusion probabilities (CPS).} The CPS
-fixed-point calibration converges geometrically for well-spread
+\section{Near-certainty inclusion probabilities in CPS}{
+
+The CPS fixed-point calibration converges geometrically for well-spread
 \code{pik}, but asymptotes at a non-zero defect when some \code{pik} are
 within a few decimal digits of 0 or 1 (e.g. 0.9999). When this happens the
 function emits a "CPS calibration did not reach tolerance" warning
@@ -103,6 +106,7 @@ typically 1e-5 or smaller for inputs in the 0.999-range, well within
 Monte Carlo error for most estimators. If the warning is unwanted,
 clip \code{pik} away from 0/1 before calling.
 }
+
 \examples{
 pik <- c(0.2, 0.4, 0.6, 0.8)
 

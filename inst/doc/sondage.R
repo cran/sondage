@@ -59,6 +59,11 @@ s_wr
 s_wr$hits  # realized selection counts
 
 ## -----------------------------------------------------------------------------
+eh_big <- expected_hits(c(10, 20, 5, 40, 125), n)
+eh_big
+unequal_prob_wr(eh_big, method = "systematic_mr")$hits
+
+## -----------------------------------------------------------------------------
 pik <- inclusion_prob(c(10, 20, 5, 40, 25), n = 3)
 x <- matrix(c(10, 20, 5, 40, 25))  # auxiliary variable to balance on
 s_bal <- balanced_wor(pik, aux = x)
@@ -110,6 +115,14 @@ s_lpm2$sample
 s_scps$sample
 
 ## -----------------------------------------------------------------------------
+set.seed(42)
+burdened <- as.double(seq_len(16) %in% c(2, 7, 11))
+u <- runif(16)
+s1 <- balanced_wor(pik_spatial, spread = burdened, method = "scps", prn = u)
+s2 <- balanced_wor(pik_spatial, spread = burdened, method = "scps", prn = 1 - u)
+intersect(s1$sample, s2$sample)
+
+## -----------------------------------------------------------------------------
 pik <- inclusion_prob(c(10, 20, 5, 40, 25), n = 3)
 s <- unequal_prob_wor(pik, method = "cps")
 
@@ -159,13 +172,13 @@ props <- data.frame(
     "SRS WR",
     "CPS", "Brewer", "Sampford", "Systematic PPS", "Poisson",
     "SPS", "Pareto",
-    "Chromy", "Multinomial",
+    "Chromy", "Multinomial", "Systematic PPS (MR)",
     "Cube", "LPM2", "SCPS"
   ),
   Type = c(
     rep("EP WOR", 3), "EP WR",
     rep("UP WOR", 7),
-    rep("UP WR", 2),
+    rep("UP WR", 3),
     rep("Balanced", 3)
   ),
   `Fixed n` = c(
@@ -173,7 +186,7 @@ props <- data.frame(
     "Yes",
     "Yes", "Yes", "Yes", "Yes", "No",
     "Yes", "Yes",
-    "Yes", "Yes",
+    "Yes", "Yes", "Yes",
     "Yes", "Yes", "Yes"
   ),
   `Exact design marginals?` = c(
@@ -181,7 +194,7 @@ props <- data.frame(
     "Yes",
     "Yes", "Yes", "Yes", "Yes", "Yes",
     "Target only*", "Target only*",
-    "Yes", "Yes",
+    "Yes", "Yes", "Yes",
     "Yes", "Yes", "Yes"
   ),
   `Joint probs` = c(
@@ -189,7 +202,7 @@ props <- data.frame(
     "Exact",
     "Exact", "HE approx", "Exact", "Exact (zeros)", "Exact",
     "HE approx", "HE approx",
-    "Simulated", "Exact",
+    "Simulated", "Exact", "Exact (zeros)",
     "HE approx", "Not available", "Not available"
   ),
   check.names = FALSE
@@ -197,10 +210,10 @@ props <- data.frame(
 knitr::kable(props, align = "llccl",
   caption = paste(
     "HE approx = high-entropy approximation (Brewer & Donadio, 2003).",
-    "For WOR methods, design marginals are first-order inclusion probabilities pi_k;",
-    "for WR methods, they are expected hits E(N_k).",
-    "Target only* = the stored design-defining pik is the target vector;",
-    "for sps and pareto the true finite-population first-order probabilities",
+    "For WOR methods, design marginals are first-order inclusion probabilities pi_k,",
+    "and for WR methods, they are expected hits E(N_k).",
+    "Target only* = the stored design-defining pik is the target vector.",
+    "For sps and pareto the true finite-population first-order probabilities",
     "are only approximately equal to that target, with the discrepancy",
     "vanishing asymptotically.",
     "Simulated = Monte Carlo via nsim parameter."

@@ -23,6 +23,34 @@
   invisible(TRUE)
 }
 
+#' Reject an argument named n in a dispatcher without an n formal
+#'
+#' `nrep` sits before `...`, so R would partially match `n = 2` to it and
+#' silently return two replicates of the full sample size.
+#'
+#' @param call The dispatcher's `sys.call()`.
+#' @param fn Name of the dispatcher, for the error message.
+#' @param total Expression that gives the sample size, for the error message.
+#'
+#' @keywords internal
+#' @noRd
+.stop_if_n_arg <- function(call, fn, total) {
+  if ("n" %in% names(call)) {
+    stop(
+      sprintf(
+        paste0(
+          "%s() has no 'n' argument. The sample size is %s, ",
+          "and 'nrep' sets the number of replicates."
+        ),
+        fn,
+        total
+      ),
+      call. = FALSE
+    )
+  }
+  invisible(TRUE)
+}
+
 #' Validate inclusion probability vector
 #'
 #' Checks that pik is a valid vector of inclusion probabilities.
@@ -61,30 +89,62 @@
     stop("'pik' values of exactly 1 are not allowed", call. = FALSE)
   }
   if (fixed_size) {
-    s <- sum(pik)
-    if (is.null(tol)) {
-      tol <- max(1e-10, 64 * .Machine$double.eps * (length(pik) + s))
-    }
-    if (abs(s - round(s)) > tol) {
-      stop(
-        sprintf(
-          "sum(pik) = %.4g is not close to an integer",
-          s
-        ),
-        call. = FALSE
-      )
-    }
-    if (round(s) < 1L) {
-      stop(
-        sprintf(
-          "sum(pik) = %.4g rounds to 0; need at least n = 1 for fixed-size sampling",
-          s
-        ),
-        call. = FALSE
-      )
-    }
+    .check_whole_sum(pik, "pik", tol = tol)
   }
   invisible(TRUE)
+}
+
+#' Validate that a vector sums to a whole number of at least 1
+#'
+#' Shared by `.check_pik()` (fixed-size designs) and `.check_hits()`. The
+#' sum is the sample size, so it must be a whole number to floating-point
+#' accuracy. A sum further away is rejected rather than rounded.
+#'
+#' @param x Numeric vector, already validated as finite and non-negative.
+#' @param name Name used in error messages, as in `sum(name)`.
+#' @param tol Tolerance for the whole-number check. The default (`NULL`)
+#'   scales with the number and magnitude of the terms: large enough to
+#'   absorb the accumulation error of `inclusion_prob()` or
+#'   `expected_hits()` at large N, far below any meaningful deviation.
+#'
+#' @return The sample size, `round(sum(x))`, as an integer.
+#'
+#' @keywords internal
+#' @noRd
+.check_whole_sum <- function(x, name, tol = NULL) {
+  s <- sum(x)
+  if (is.null(tol)) {
+    tol <- max(1e-10, 64 * .Machine$double.eps * (length(x) + s))
+  }
+  if (abs(s - round(s)) > tol) {
+    stop(
+      sprintf("sum(%s) = %.6g is not close to an integer", name, s),
+      call. = FALSE
+    )
+  }
+  if (round(s) < 1L) {
+    stop(
+      sprintf(
+        "sum(%s) = %.4g rounds to 0; need at least n = 1 for fixed-size sampling",
+        name,
+        s
+      ),
+      call. = FALSE
+    )
+  }
+  # as.integer() would turn a larger sum into NA, which then reaches C.
+  if (round(s) > .Machine$integer.max) {
+    stop(
+      sprintf(
+        "sum(%s) = %.6g exceeds the largest supported sample size, %d",
+        name,
+        s,
+        .Machine$integer.max
+      ),
+      call. = FALSE
+    )
+  }
+  as.integer(round(s))
 }
 
 #' Validate permanent random numbers
@@ -213,11 +273,47 @@
   r <- round(x)
   if (abs(x - r) > tol) {
     stop(
-      sprintf("%s (%.4g) is not close to an integer", name, x),
+      sprintf("%s (%.6g) is not close to an integer", name, x),
+      call. = FALSE
+    )
+  }
+  # as.integer() would turn a larger value into NA, which then reaches C.
+  if (abs(r) > .Machine$integer.max) {
+    stop(
+      sprintf(
+        "'%s' = %.6g exceeds the largest supported integer, %d",
+        name,
+        x,
+        .Machine$integer.max
+      ),
       call. = FALSE
     )
   }
   as.integer(r)
+}
+
+#' Validate the units of a design object before a sampled-only query
+#'
+#' The compiled submatrix code indexes the population by these values, so
+#' an edited `$sample` with an index out of range, or with a duplicate,
+#' would read outside the input or leave a pair uncomputed.
+#'
+#' @keywords internal
+#' @noRd
+.check_design_units <- function(idx, N) {
+  ok <- is.numeric(idx) && is.null(dim(idx)) && !anyNA(idx) &&
+    all(is.finite(idx)) && all(idx == floor(idx)) &&
+    all(idx >= 1 & idx <= N) && !anyDuplicated(idx)
+  if (!ok) {
+    stop(
+      sprintf(
+        "the design's $sample must hold distinct unit indices between 1 and N = %d",
+        N
+      ),
+      call. = FALSE
+    )
+  }
+  as.integer(idx)
 }
 
 #' Validate indices used for a sampled joint-probability submatrix
@@ -373,11 +469,12 @@
 
 #' Validate expected hits vector
 #'
-#' Checks that hits is a valid vector of expected hits for WR sampling.
+#' Checks that hits is a valid vector of expected hits for WR sampling and
+#' that `sum(hits)`, the sample size, is a whole number of at least 1.
 #'
 #' @param hits Vector to validate.
 #'
-#' @return Invisibly returns TRUE if valid, otherwise stops with error.
+#' @return The sample size `n = round(sum(hits))`, as an integer.
 #'
 #' @keywords internal
 #' @noRd
@@ -392,5 +489,5 @@
   if (sum(hits) == 0) {
     stop("sum of 'hits' must be positive", call. = FALSE)
   }
-  invisible(TRUE)
+  .check_whole_sum(hits, "hits")
 }

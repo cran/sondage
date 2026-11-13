@@ -5,8 +5,9 @@
 #'
 #' @param x A numeric vector of positive size measures, or a
 #'   without-replacement design object (class `"wor"`).
-#' @param n The desired sample size. Required when `x` is a numeric vector;
-#'   it must not be supplied when `x` is a design object.
+#' @param n The desired sample size, or the expected sample size of a
+#'   random-size design, which may be fractional. Required when `x` is a
+#'   numeric vector. It must not be supplied when `x` is a design object.
 #' @param ... Reserved for methods. The methods provided by sondage currently
 #'   take no additional arguments.
 #'
@@ -14,8 +15,8 @@
 #'   design object, returns the stored `pik` vector. For most methods
 #'   this equals the true first-order inclusion probabilities. For
 #'   order-sampling methods (`sps`, `pareto`), it is the target used
-#'   to define the design; the true probabilities are approximately
-#'   equal and converge as N grows. Names on a numeric `x` are preserved.
+#'   to define the design. The true probabilities are approximately
+#'   equal to it and converge as N grows. Names on a numeric `x` are preserved.
 #'
 #' @seealso [expected_hits()] for the with-replacement analogue,
 #'   [unequal_prob_wor()] for sampling with these probabilities.
@@ -72,11 +73,23 @@ inclusion_prob.wr <- function(x, ...) {
 #' proportional allocation without capping. Negative values in `x`
 #' are treated as zero (with a warning).
 #'
+#' `n` may be any real number from 0 to the number of units with positive
+#' size. A fractional `n` is the expected size of a random-size design,
+#' such as Poisson sampling. Fixed-size samplers, [unequal_prob_wor()]
+#' among them, require probabilities that sum to a whole number and refuse
+#' others.
+#'
 #' @examples
 #' # With certainty selections (large units)
 #' size <- c(1, 1, 1, 100)
 #' pik <- inclusion_prob(size, n = 2)
 #' pik  # Unit 4 gets probability 1
+#'
+#' # The expected size of a random-size design need not be a whole number
+#' pik <- inclusion_prob(rep(1, 10), n = 2.6)
+#' sum(pik)  # 2.6
+#' unequal_prob_wor(pik, method = "poisson")       # valid
+#' try(unequal_prob_wor(pik, method = "sampford")) # refused: fixed size
 #'
 #' @export
 inclusion_prob.default <- function(x, n, ...) {
@@ -86,7 +99,7 @@ inclusion_prob.default <- function(x, n, ...) {
   if (missing(n)) {
     stop("'n' is required when 'x' is not a design object", call. = FALSE)
   }
-  n <- .check_number(n, "n", integer = TRUE)
+  n <- .check_number(n, "n")
   if (n < 0) {
     stop("'n' must be non-negative", call. = FALSE)
   }
@@ -210,7 +223,7 @@ expected_hits.wor <- function(x, ...) {
 #' Joint Inclusion Probabilities
 #'
 #' Computes the matrix of joint inclusion probabilities
-#' \eqn{\pi_{ij} = P(i \in S \text{ and } j \in S)} for a
+#' \eqn{\pi_{ij} = P(i \in S \text{ and } j \in S)}{pi_ij = P(i in S and j in S)} for a
 #' without-replacement sampling design.
 #'
 #' @param x A without-replacement design object (class `"wor"`).
@@ -227,16 +240,18 @@ expected_hits.wor <- function(x, ...) {
 #'   \item{Exact}{`cps` (probability-domain Poisson-binomial
 #'     recurrences), `sampford` (elementary-symmetric recurrences),
 #'     `systematic` (circular interval overlap), `poisson`
-#'     (\eqn{\pi_{ij} = \pi_i \pi_j}), `srs`, and `bernoulli`.}
+#'     (\eqn{\pi_{ij} = \pi_i \pi_j}{pi_ij = pi_i pi_j}), `srs`, and `bernoulli`.}
 #'   \item{Approximate}{`brewer`, `sps`, `pareto`, and `cube` use the
 #'     high-entropy approximation (Brewer & Donadio, 2003, eq. 18):
-#'     \eqn{\pi_{ij} \approx \pi_i \pi_j (c_i + c_j) / 2}.
+#'     \eqn{\pi_{ij} \approx \pi_i \pi_j (c_i + c_j) / 2}{pi_ij ~ pi_i pi_j (c_i + c_j) / 2}.
 #'     This guarantees symmetry,
-#'     \eqn{0 \leq \pi_{ij} \leq \min(\pi_i, \pi_j)}, and correct
+#'     \eqn{0 \leq \pi_{ij} \leq \min(\pi_i, \pi_j)}{0 <= pi_ij <= min(pi_i, pi_j)}, and correct
 #'     diagonal, but \strong{not} the marginal identity
-#'     \eqn{\sum_{j \neq i} \pi_{ij} = (n-1)\pi_i}. The defect is
+#'     \eqn{\sum_{j \neq i} \pi_{ij} = (n-1)\pi_i}{sum_(j != i) pi_ij = (n - 1) pi_i}. The defect is
 #'     typically small but grows with skewed \eqn{\pi_k} and small
-#'     \eqn{n}. A warning is issued when it exceeds 5\% of \eqn{n}.
+#'     \eqn{n}. A warning is issued when it exceeds 5% of \eqn{n}.
+#'     For `cube`, the approximation ignores strata and balancing
+#'     constraints, see [balanced_wor()].
 #'     Use `method = "cps"` when exact second-order probabilities are
 #'     needed. For `sps` and `pareto`, the approximation uses the
 #'     stored target `pik`, not the exact finite-population
@@ -263,14 +278,14 @@ expected_hits.wor <- function(x, ...) {
 #'   of joint inclusion probabilities. Diagonal entries are the
 #'   first-order inclusion probabilities \eqn{\pi_i}. When the stored
 #'   probability vector is named, those names are used as row and column
-#'   names. An otherwise unnamed sampled-only matrix is labelled with the
+#'   names. An otherwise unnamed sampled-only matrix is labeled with the
 #'   sampled population indices.
 #'
 #' @seealso [joint_expected_hits()] for the with-replacement analogue,
 #'   [sampling_cov()] for the covariance matrix.
 #'
 #' @examples
-#' pik <- c(0.2, 0.3, 0.5)
+#' pik <- c(0.2, 0.4, 0.6, 0.8)
 #' s <- unequal_prob_wor(pik, method = "cps")
 #' joint_inclusion_prob(s)
 #'
@@ -285,8 +300,8 @@ joint_inclusion_prob <- function(x, ...) {
 #' @rdname joint_inclusion_prob
 #' @param eps High-entropy approximation boundary tolerance (default
 #'   1e-6), used only by the HE-approximate methods (`brewer`, `sps`,
-#'   `pareto`, `cube`). See [he_jip()]. The exact `cps` and
-#'   `systematic` methods ignore it and treat only exact 0/1 as
+#'   `pareto`, `cube`). See [he_jip()]. The exact `cps`, `sampford`,
+#'   and `systematic` methods ignore it and treat only exact 0/1 as
 #'   excluded/certainty units.
 #' @export
 joint_inclusion_prob.wor <- function(x, sampled_only = FALSE, eps = 1e-6, ...) {
@@ -318,6 +333,7 @@ joint_inclusion_prob.wor <- function(x, sampled_only = FALSE, eps = 1e-6, ...) {
         call. = FALSE
       )
     }
+    sample_idx <- .check_design_units(sample_idx, length(pik))
     n_sampled <- length(sample_idx)
     if (n_sampled > 10000L) {
       stop(
@@ -389,7 +405,7 @@ joint_inclusion_prob.wor <- function(x, sampled_only = FALSE, eps = 1e-6, ...) {
         sample_idx,
         "joint_inclusion_prob",
         list(eps = eps),
-        ...
+        list(...)
       )
     )
   } else {
@@ -420,7 +436,7 @@ joint_inclusion_prob.wor <- function(x, sampled_only = FALSE, eps = 1e-6, ...) {
         NULL,
         "joint_inclusion_prob",
         list(eps = eps),
-        ...
+        list(...)
       )
     )
 
@@ -469,7 +485,7 @@ joint_inclusion_prob.wr <- function(x, ...) {
 joint_inclusion_prob.default <- function(x, ...) {
   stop(
     "'joint_inclusion_prob()' requires a WOR design object created by ",
-    "'equal_prob_wor()' or 'unequal_prob_wor()'.",
+    "'equal_prob_wor()', 'unequal_prob_wor()', or 'balanced_wor()'.",
     call. = FALSE
   )
 }
@@ -493,8 +509,12 @@ joint_inclusion_prob.default <- function(x, ...) {
 #'
 #' \describe{
 #'   \item{Exact}{`multinomial`
-#'     (\eqn{E(n_i n_j) = n(n-1) p_i p_j}) and `srs`
-#'     (\eqn{E(n_i n_j) = n(n-1)/N^2}).}
+#'     (\eqn{E(n_i n_j) = n(n-1) p_i p_j}), `srs`
+#'     (\eqn{E(n_i n_j) = n(n-1)/N^2}), and `systematic_mr`, from the
+#'     whole part of each unit's expected hits and the overlap of the arcs
+#'     the units cover on the systematic walk. For `systematic_mr`, two
+#'     units below one expected hit whose arcs do not overlap are never
+#'     selected together, and their entry is exactly zero.}
 #'   \item{Simulation}{`chromy`: estimated by Monte Carlo (controlled
 #'     by `nsim`, default 10 000).}
 #' }
@@ -513,7 +533,7 @@ joint_inclusion_prob.default <- function(x, ...) {
 #'   selected units). Diagonal entries are \eqn{E(n_i^2)} and
 #'   off-diagonal entries are \eqn{E(n_i n_j)}. When the stored probability
 #'   vector is named, those names are used as row and column names. An
-#'   otherwise unnamed sampled-only matrix is labelled with the selected
+#'   otherwise unnamed sampled-only matrix is labeled with the selected
 #'   population indices.
 #'
 #' @seealso [joint_inclusion_prob()] for the without-replacement analogue,
@@ -561,6 +581,15 @@ joint_expected_hits.wr <- function(
         "Use sampled_only = FALSE and subset manually:\n",
         "  pikl[s$sample[, i], s$sample[, i]] for fixed-size designs, or\n",
         "  pikl[s$sample[[i]], s$sample[[i]]] for random-size designs.",
+        call. = FALSE
+      )
+    }
+    if (length(x$hits) != length(prob)) {
+      stop(
+        sprintf(
+          "the design's $hits must have one count per unit, N = %d",
+          length(prob)
+        ),
         call. = FALSE
       )
     }
@@ -613,6 +642,12 @@ joint_expected_hits.wr <- function(
         diag(pikl) <- n * prob_s * (1 - prob_s) + (n * prob_s)^2
         pikl
       },
+      systematic_mr = .Call(
+        C_wr_systematic_jeh_sub,
+        as.double(n * prob),
+        as.integer(n),
+        as.integer(sample_idx)
+      ),
       srs = {
         p <- 1 / N
         ns <- n_sampled
@@ -626,7 +661,7 @@ joint_expected_hits.wr <- function(
         sample_idx,
         "joint_expected_hits",
         list(nsim = nsim),
-        ...
+        list(...)
       )
     )
   } else {
@@ -644,6 +679,11 @@ joint_expected_hits.wr <- function(
         diag(pikl) <- n * prob * (1 - prob) + (n * prob)^2
         pikl
       },
+      systematic_mr = .Call(
+        C_wr_systematic_jeh,
+        as.double(n * prob),
+        as.integer(n)
+      ),
       srs = {
         p <- 1 / N
         pikl <- matrix(n * (n - 1) * p * p, N, N)
@@ -656,7 +696,7 @@ joint_expected_hits.wr <- function(
         NULL,
         "joint_expected_hits",
         list(nsim = nsim),
-        ...
+        list(...)
       )
     )
   }
@@ -694,13 +734,13 @@ joint_expected_hits.default <- function(x, ...) {
 #' Computes the sampling covariance matrix used in variance estimation.
 #'
 #' For without-replacement designs:
-#' \eqn{\Delta_{ij} = \pi_{ij} - \pi_i \pi_j}.
+#' \eqn{\Delta_{ij} = \pi_{ij} - \pi_i \pi_j}{Delta_ij = pi_ij - pi_i pi_j}.
 #'
 #' For with-replacement designs:
 #' \eqn{E(n_i n_j) - E(n_i) E(n_j)}.
 #'
 #' When `weighted = TRUE`, returns the Sen-Yates-Grundy check quantities:
-#' \eqn{1 - \pi_i \pi_j / \pi_{ij}} for WOR,
+#' \eqn{1 - \pi_i \pi_j / \pi_{ij}}{1 - pi_i pi_j / pi_ij} for WOR,
 #' \eqn{1 - E(n_i) E(n_j) / E(n_i n_j)} for WR.
 #'
 #' @param x A sampling design object (class `"sondage_sample"`).
@@ -715,15 +755,18 @@ joint_expected_hits.default <- function(x, ...) {
 #'
 #' @details
 #' Accuracy depends on the underlying joint probabilities. For `cps`,
-#' `systematic`, `poisson`, `srs`, and `bernoulli`, joint probabilities
-#' are exact and so is the covariance. For `brewer`, `sps`, `pareto`,
-#' and `cube`, they use the high-entropy approximation. For `chromy`,
-#' they are simulation-based (see `nsim`). See [joint_inclusion_prob()]
-#' and [joint_expected_hits()].
+#' `sampford`, `systematic`, `poisson`, `srs`, `bernoulli`, `multinomial`,
+#' and `systematic_mr`, joint probabilities or pairwise expectations are
+#' exact and so is the covariance. For `brewer`, `sps`,
+#' `pareto`, and `cube`, they use the high-entropy approximation. For
+#' `chromy`, they are simulation-based (see `nsim`). `lpm2` and `scps`
+#' expose no joint probabilities, so `sampling_cov()` stops with an error
+#' for them. See [joint_inclusion_prob()] and [joint_expected_hits()].
 #'
-#' Some designs (notably systematic PPS) produce \eqn{\pi_{ij} = 0} for
-#' pairs that never co-occur. When `weighted = TRUE`, the SYG quantity
-#' \eqn{1 - \pi_i \pi_j / \pi_{ij}} is undefined for such pairs and
+#' Some designs (notably systematic PPS) produce \eqn{\pi_{ij} = 0}{pi_ij = 0} for
+#' pairs that never co-occur, and `systematic_mr` gives such pairs zero
+#' pairwise expected hits. When `weighted = TRUE`, the SYG quantity
+#' \eqn{1 - \pi_i \pi_j / \pi_{ij}}{1 - pi_i pi_j / pi_ij} is undefined for such pairs and
 #' set to `NA` with a warning. The raw covariance (`weighted = FALSE`)
 #' is unaffected. The Sen-Yates-Grundy estimator is not applicable
 #' for these designs (\enc{Tillé}{Tille}, 2006, Ch. 5).
@@ -732,7 +775,7 @@ joint_expected_hits.default <- function(x, ...) {
 #'   For WOR designs with `weighted = FALSE`, off-diagonal entries are
 #'   typically negative for well-behaved designs. With `weighted = TRUE`,
 #'   off-diagonal entries are typically non-positive (entries where
-#'   \eqn{\pi_{ij} = 0} are set to `NA`). Unit labels are inherited from
+#'   \eqn{\pi_{ij} = 0}{pi_ij = 0} are set to `NA`). Unit labels are inherited from
 #'   the underlying joint matrix.
 #'
 #' @references
@@ -747,7 +790,7 @@ joint_expected_hits.default <- function(x, ...) {
 #'   with-replacement analogue.
 #'
 #' @examples
-#' pik <- c(0.2, 0.3, 0.5)
+#' pik <- c(0.2, 0.4, 0.6, 0.8)
 #' s <- unequal_prob_wor(pik, method = "cps")
 #'
 #' # Raw covariance
@@ -841,7 +884,7 @@ sampling_cov.default <- function(x, ...) {
   stop(
     "'sampling_cov()' requires a design object created by one of the ",
     "sampling functions ('equal_prob_wor()', 'equal_prob_wr()', ",
-    "'unequal_prob_wor()', or 'unequal_prob_wr()').",
+    "'unequal_prob_wor()', 'unequal_prob_wr()', or 'balanced_wor()').",
     call. = FALSE
   )
 }
@@ -867,13 +910,13 @@ sampling_cov.default <- function(x, ...) {
   pikl <- matrix(0, n_s, n_s)
   diag(pikl) <- pik_s
 
-  # Handle certainty units in sample
+  # Handle certainty units in sample. A pair takes its smaller probability,
+  # so two near-certainty units do not depend on the processing order.
   cert_s <- which(pik_s >= 1 - eps)
   if (length(cert_s) > 0) {
     for (ci in cert_s) {
-      pikl[ci, ] <- pik_s
-      pikl[, ci] <- pik_s
-      pikl[ci, ci] <- pik_s[ci]
+      pikl[ci, ] <- pmin(pik_s, pik_s[ci])
+      pikl[, ci] <- pmin(pik_s, pik_s[ci])
     }
   }
 

@@ -204,6 +204,9 @@ unregister_method("cube_lp_str")
 
 ## ----lpm1-fn------------------------------------------------------------------
 lpm1_sample <- function(pik, n = NULL, aux = NULL, spread = NULL, ...) {
+  if (is.null(spread)) {
+    stop("method 'lpm1' requires 'spread'", call. = FALSE)
+  }
   d <- as.matrix(dist(spread))
   diag(d) <- Inf
   p <- pik
@@ -222,7 +225,7 @@ lpm1_sample <- function(pik, n = NULL, aux = NULL, spread = NULL, ...) {
     j <- v[which.min(d[i, v])]
     w <- u[u != j]
     if (w[which.min(d[j, w])] != i) {
-      next # not mutual nearest neighbours: redraw i
+      next # not mutual nearest neighbors: redraw i
     }
     s <- p[i] + p[j]
     if (s > 1) {
@@ -265,7 +268,7 @@ pik <- rep(0.15, N)
 s <- balanced_wor(pik, spread = coords, method = "lpm1")
 s
 
-# Spread diagnostic: mean distance to the nearest sampled neighbour
+# Spread diagnostic: mean distance to the nearest sampled neighbor
 # (larger is better spread)
 nn_dist <- function(idx) {
   d <- as.matrix(dist(coords[idx, ]))
@@ -293,10 +296,9 @@ unregister_method("lpm1")
 #     s <- my_sampler(pik, n = n)
 #     co[s, s] <- co[s, s] + 1
 #   }
+#   # The diagonal of co / B estimates pik from the same draws. When the
+#   # design gives pik exactly, diag(pikl) <- pik replaces the estimate.
 #   pikl <- co / B
-#   diag(pikl) <- tabulate(unlist(
-#     replicate(B, my_sampler(pik, n = n), simplify = FALSE)
-#   ), nbins = N) / B
 #   if (!is.null(sample_idx)) {
 #     pikl <- pikl[sample_idx, sample_idx, drop = FALSE]
 #   }

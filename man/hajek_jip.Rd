@@ -13,29 +13,34 @@ hajek_jip(pik, sample_idx = NULL, eps = 1e-06, ...)
 \item{sample_idx}{Unique integer vector of 1-based indices for the
 sampled units, or \code{NULL} (default) for the full population matrix.
 When non-\code{NULL}, returns the submatrix for those units only, without
-allocating the full N x N matrix.}
+allocating the full N x N matrix. The returned matrix has at most
+10,000 rows, as for \code{\link[=joint_inclusion_prob]{joint_inclusion_prob()}}, so a population above
+that size needs \code{sample_idx}.}
 
 \item{eps}{Boundary tolerance (default 1e-6). Units with
-\eqn{\pi_k \ge 1 - \varepsilon} are treated as certainty
-selections; units with \eqn{\pi_k \le \varepsilon} are
-treated as zero.}
+\eqn{\pi_k \ge 1 - \varepsilon}{pi_k >= 1 - eps} are treated as certainty
+selections, and units with \eqn{\pi_k \le \varepsilon}{pi_k <= eps}
+are treated as zero.}
 
 \item{...}{Additional arguments (ignored). Present so that the
 function matches the \code{joint_fn} signature required by
-\code{\link[=register_method]{register_method()}}.}
+\code{\link[=register_method]{register_method()}}. \code{sampled_only} is refused, since it belongs to
+\code{\link[=joint_inclusion_prob]{joint_inclusion_prob()}}. Use \code{sample_idx} here instead.}
 }
 \value{
 A symmetric matrix of joint inclusion probabilities:
 N x N when \code{sample_idx} is \code{NULL}, or
 \code{length(sample_idx)} x \code{length(sample_idx)} otherwise.
-Diagonal entries are \eqn{\pi_i}.
+Diagonal entries are \eqn{\pi_i}. Rows and columns are named after
+\code{names(pik)}, as in \code{\link[=joint_inclusion_prob]{joint_inclusion_prob()}}. A submatrix of unnamed
+\code{pik} is labeled with the indices in \code{sample_idx}.
 }
 \description{
 Computes the joint inclusion probability matrix using the
 Hajek (1964) approximation based on conditional Poisson
 (rejective) sampling theory:
 \deqn{\pi_{ij} \approx \pi_i \pi_j
-  \left[1 - \frac{(1-\pi_i)(1-\pi_j)}{D}\right]}
+  \left[1 - \frac{(1-\pi_i)(1-\pi_j)}{D}\right]}{pi_ij ~ pi_i pi_j (1 - (1 - pi_i)(1 - pi_j) / D)}
 where \eqn{D = \sum_k \pi_k (1 - \pi_k)}.
 }
 \details{
@@ -43,13 +48,14 @@ The Hajek approximation is simpler and computationally lighter
 than the high-entropy approximation (\code{\link[=he_jip]{he_jip()}}), but generally
 slightly less accurate. It is derived from the asymptotic
 theory of rejective (conditional Poisson) sampling, where the
-design is obtained by conditioning independent Poisson trials
-on the total sample size.
+design is obtained by conditioning independent Bernoulli trials
+(Poisson sampling) on the total sample size.
 
 The formula is valid for any high-entropy design, but is most
-accurate when the design is close to rejective sampling. For
-maximum-entropy designs (CPS, Sampford), \code{\link[=he_jip]{he_jip()}} tends to
-give tighter results. In practice, both approximations agree
+accurate when the design is close to rejective sampling. For CPS,
+the maximum-entropy design, and for other high-entropy designs such
+as Sampford's, \code{\link[=he_jip]{he_jip()}} tends to give tighter results. Both CPS and
+Sampford have exact joint probabilities in \code{\link[=joint_inclusion_prob]{joint_inclusion_prob()}}. In practice, both approximations agree
 closely for moderate to large populations with well-spread
 inclusion probabilities.
 
@@ -62,13 +68,13 @@ signature required by \code{\link[=register_method]{register_method()}}:
 \section{Properties}{
 
 \itemize{
-\item Symmetric: \eqn{\pi_{ij} = \pi_{ji}}
-\item Diagonal: \eqn{\pi_{ii} = \pi_i} (set directly)
-\item Bounded: \eqn{0 \le \pi_{ij} \le \min(\pi_i, \pi_j)}
+\item Symmetric: \eqn{\pi_{ij} = \pi_{ji}}{pi_ij = pi_ji}
+\item Diagonal: \eqn{\pi_{ii} = \pi_i}{pi_ii = pi_i} (set directly)
+\item Bounded: \eqn{0 \le \pi_{ij} \le \min(\pi_i, \pi_j)}{0 <= pi_ij <= min(pi_i, pi_j)}
 (clamped)
 \item Marginal defect:
 \eqn{|\sum_{j \ne i} \pi_{ij} - (n-1)\pi_i| =
-    O(1/N)} for well-spread \eqn{\pi_k}
+    O(1/N)}{|sum_(j != i) pi_ij - (n - 1) pi_i| = O(1/N)} for well-spread \eqn{\pi_k}
 }
 }
 

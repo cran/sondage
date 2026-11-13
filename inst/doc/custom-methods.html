@@ -149,7 +149,6 @@ code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; }
 div.csl-bib-body { }
 div.csl-entry {
 clear: both;
-margin-bottom: 0em;
 }
 .hanging div.csl-entry {
 margin-left:2em;
@@ -366,11 +365,11 @@ code > span.er { color: #a61717; background-color: #e3d2d2; }
 
 <div id="overview" class="section level2">
 <h2>Overview</h2>
-<p><code>sondage</code> ships with 16 built-in sampling methods, but
-researchers and agencies often need algorithms that are not included.
-The registration API lets you plug a custom unequal probability or
-balanced sampling method into the existing dispatchers and generics
-without modifying the package source.</p>
+<p><code>sondage</code> ships with 17 built-in sampling methods across
+its five dispatchers, but researchers and agencies often need algorithms
+that are not included. The registration API lets you plug a custom
+unequal probability or balanced sampling method into the existing
+dispatchers and generics without modifying the package source.</p>
 <p>After registering a method, it participates in the same dispatcher
 and sample-object API as built-in methods. Joint-probability and
 covariance queries are available when the registration supplies a
@@ -388,7 +387,7 @@ method:</p>
 <span id="cb1-6"><a href="#cb1-6" tabindex="-1"></a>  <span class="at">joint_fn =</span> <span class="cn">NULL</span>,          <span class="co"># function(pik/hits, sample_idx, ...) -&gt; matrix</span></span>
 <span id="cb1-7"><a href="#cb1-7" tabindex="-1"></a>  <span class="at">fixed_size =</span> <span class="cn">TRUE</span>,        <span class="co"># required for with-replacement methods</span></span>
 <span id="cb1-8"><a href="#cb1-8" tabindex="-1"></a>  <span class="at">variance_family =</span> <span class="cn">NULL</span>,   <span class="co"># declared variance-estimation family (optional)</span></span>
-<span id="cb1-9"><a href="#cb1-9" tabindex="-1"></a>  <span class="at">supports_prn =</span> <span class="cn">NULL</span>,      <span class="co"># WOR/WR only: permanent random-number support?</span></span>
+<span id="cb1-9"><a href="#cb1-9" tabindex="-1"></a>  <span class="at">supports_prn =</span> <span class="cn">NULL</span>,      <span class="co"># permanent random-number support?</span></span>
 <span id="cb1-10"><a href="#cb1-10" tabindex="-1"></a>  <span class="at">supports_aux =</span> <span class="cn">NULL</span>,      <span class="co"># balanced only: balancing-variable support?</span></span>
 <span id="cb1-11"><a href="#cb1-11" tabindex="-1"></a>  <span class="at">supports_strata =</span> <span class="cn">NULL</span>,   <span class="co"># balanced only: stratification support?</span></span>
 <span id="cb1-12"><a href="#cb1-12" tabindex="-1"></a>  <span class="at">supports_spread =</span> <span class="cn">NULL</span>,   <span class="co"># balanced only: spatial-spreading support?</span></span>
@@ -420,33 +419,34 @@ submatrix otherwise.</li>
 <p>The dispatcher validates that sample indices are finite integers in
 range and obey the replacement and sample-size rules. It also checks
 that joint results are finite numeric matrices with the expected
-dimensions and symmetry; statistical properties remain the method
+dimensions and symmetry. Statistical properties remain the method
 author’s responsibility.</p>
 <p>Capability flags describe what the method can do, and the dispatchers
 enforce them. <code>NULL</code> means unspecified: it resolves to
 <code>FALSE</code>, except that <code>supports_aux</code> resolves to
-<code>TRUE</code> for a balanced method. WOR and WR methods may
-explicitly set only <code>supports_prn</code>; balanced methods may
-explicitly set only <code>supports_aux</code>,
-<code>supports_strata</code>, and <code>supports_spread</code>.
-Supplying a capability for another method type is an error, even when
-its value is <code>FALSE</code>.</p>
-<p>A <code>&quot;wor&quot;</code> or <code>&quot;wr&quot;</code> method that sets
-<code>supports_prn = TRUE</code> receives a validated <code>prn</code>
-vector for sample coordination. Otherwise supplying <code>prn</code> is
-an error. A <code>&quot;balanced&quot;</code> method only receives a
-<code>strata</code> argument when registered with
-<code>supports_strata = TRUE</code>, and a <code>spread</code> argument
+<code>TRUE</code> for a balanced method. Any method may set
+<code>supports_prn</code>. Only balanced methods may set
+<code>supports_aux</code>, <code>supports_strata</code>, and
+<code>supports_spread</code>, and supplying one of these for a WOR or WR
+method is an error, even when its value is <code>FALSE</code>.</p>
+<p>A method that sets <code>supports_prn = TRUE</code> receives a
+validated <code>prn</code> vector for sample coordination. Otherwise
+supplying <code>prn</code> is an error. A <code>&quot;balanced&quot;</code> method
+only receives a <code>strata</code> argument when registered with
+<code>supports_strata = TRUE</code>, a <code>spread</code> argument
 (spatial coordinates) when registered with
-<code>supports_spread = TRUE</code>. Spread-only methods that never look
-at balancing variables should declare <code>supports_aux = FALSE</code>.
-In every case, passing a design input to a method without the matching
-capability is an error, because silently dropping <code>prn</code>,
-<code>aux</code>, <code>strata</code>, or <code>spread</code> would
-change the requested design. The simplest balanced registration
-therefore needs nothing beyond <code>aux</code>. The cube method’s
-<code>bounds</code> interface is currently built-in only, registered
-balanced methods cannot opt into <code>bounds</code>.</p>
+<code>supports_spread = TRUE</code>, and a <code>prn</code> argument
+when registered with <code>supports_prn = TRUE</code> and the caller
+supplies one. Declare each of them with a <code>NULL</code> default.
+Spread-only methods that never look at balancing variables should
+declare <code>supports_aux = FALSE</code>. In every case, passing a
+design input to a method without the matching capability is an error,
+because silently dropping <code>prn</code>, <code>aux</code>,
+<code>strata</code>, or <code>spread</code> would change the requested
+design. The simplest balanced registration therefore needs nothing
+beyond <code>aux</code>. The cube method’s <code>bounds</code> interface
+is currently built-in only, registered balanced methods cannot opt into
+<code>bounds</code>.</p>
 <p><code>variance_family</code> declares how design-based variance
 should be estimated for samples drawn with the method:
 <code>&quot;srs&quot;</code>, <code>&quot;pps_brewer&quot;</code>, <code>&quot;poisson&quot;</code>,
@@ -499,7 +499,7 @@ and resolves at least one of them to zero or one. Randomizing the pair
 at each step gives a compact example of an exact fixed-size <span class="math inline">\(\pi\)</span>ps sampler that is not already a
 built-in <code>sondage</code> method.</p>
 <div class="sourceCode" id="cb2"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" tabindex="-1"></a>random_pivotal_sample <span class="ot">&lt;-</span> <span class="cf">function</span>(pik, <span class="at">n =</span> <span class="cn">NULL</span>, <span class="at">prn =</span> <span class="cn">NULL</span>, ...) {</span>
-<span id="cb2-2"><a href="#cb2-2" tabindex="-1"></a>  tol <span class="ot">&lt;-</span> <span class="fl">1e-06</span></span>
+<span id="cb2-2"><a href="#cb2-2" tabindex="-1"></a>  tol <span class="ot">&lt;-</span> <span class="dv">1</span>e<span class="sc">-</span><span class="dv">06</span></span>
 <span id="cb2-3"><a href="#cb2-3" tabindex="-1"></a>  active <span class="ot">&lt;-</span> <span class="fu">which</span>(pik <span class="sc">&gt;</span> tol <span class="sc">&amp;</span> pik <span class="sc">&lt;</span> <span class="dv">1</span> <span class="sc">-</span> tol)</span>
 <span id="cb2-4"><a href="#cb2-4" tabindex="-1"></a></span>
 <span id="cb2-5"><a href="#cb2-5" tabindex="-1"></a>  <span class="cf">while</span> (<span class="fu">length</span>(active) <span class="sc">&gt;=</span> <span class="dv">2</span><span class="dt">L</span>) {</span>
@@ -550,7 +550,7 @@ declared joint approximation flows through
 <div class="sourceCode" id="cb4"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" tabindex="-1"></a>pik <span class="ot">&lt;-</span> <span class="fu">inclusion_prob</span>(<span class="fu">c</span>(<span class="dv">2</span>, <span class="dv">3</span>, <span class="dv">4</span>, <span class="dv">5</span>, <span class="dv">6</span>, <span class="dv">7</span>, <span class="dv">8</span>, <span class="dv">9</span>), <span class="at">n =</span> <span class="dv">4</span>)</span>
 <span id="cb4-2"><a href="#cb4-2" tabindex="-1"></a>s <span class="ot">&lt;-</span> <span class="fu">unequal_prob_wor</span>(pik, <span class="at">method =</span> <span class="st">&quot;random_pivotal&quot;</span>)</span>
 <span id="cb4-3"><a href="#cb4-3" tabindex="-1"></a>s</span>
-<span id="cb4-4"><a href="#cb4-4" tabindex="-1"></a><span class="co">#&gt; Unequal prob WOR [random_pivotal] (n=4, N=8): 2 6 7 8</span></span>
+<span id="cb4-4"><a href="#cb4-4" tabindex="-1"></a><span class="co">#&gt; Unequal prob WOR [random_pivotal] (n=4, N=8): 4 6 7 8</span></span>
 <span id="cb4-5"><a href="#cb4-5" tabindex="-1"></a></span>
 <span id="cb4-6"><a href="#cb4-6" tabindex="-1"></a>pikl <span class="ot">&lt;-</span> <span class="fu">joint_inclusion_prob</span>(s)</span>
 <span id="cb4-7"><a href="#cb4-7" tabindex="-1"></a><span class="fu">round</span>(pikl, <span class="dv">4</span>)</span>
@@ -574,11 +574,11 @@ declared joint approximation flows through
 <span id="cb4-25"><a href="#cb4-25" tabindex="-1"></a><span class="co">#&gt; [7,] -0.2043 -0.1793 -0.1528 -0.1246 -0.0946 -0.0626  0.2727  0.0081</span></span>
 <span id="cb4-26"><a href="#cb4-26" tabindex="-1"></a><span class="co">#&gt; [8,] -0.1544 -0.1314 -0.1070 -0.0810 -0.0532 -0.0236  0.0081  0.1818</span></span>
 <span id="cb4-27"><a href="#cb4-27" tabindex="-1"></a><span class="fu">joint_inclusion_prob</span>(s, <span class="at">sampled_only =</span> <span class="cn">TRUE</span>)</span>
-<span id="cb4-28"><a href="#cb4-28" tabindex="-1"></a><span class="co">#&gt;           2         6         7         8</span></span>
-<span id="cb4-29"><a href="#cb4-29" tabindex="-1"></a><span class="co">#&gt; 2 0.2727273 0.1417381 0.1681894 0.1972218</span></span>
-<span id="cb4-30"><a href="#cb4-30" tabindex="-1"></a><span class="co">#&gt; 6 0.1417381 0.6363636 0.4355263 0.5086542</span></span>
-<span id="cb4-31"><a href="#cb4-31" tabindex="-1"></a><span class="co">#&gt; 7 0.1681894 0.4355263 0.7272727 0.5999281</span></span>
-<span id="cb4-32"><a href="#cb4-32" tabindex="-1"></a><span class="co">#&gt; 8 0.1972218 0.5086542 0.5999281 0.8181818</span></span></code></pre></div>
+<span id="cb4-28"><a href="#cb4-28" tabindex="-1"></a><span class="co">#&gt;           4         6         7         8</span></span>
+<span id="cb4-29"><a href="#cb4-29" tabindex="-1"></a><span class="co">#&gt; 4 0.4545455 0.2481593 0.2939489 0.3440405</span></span>
+<span id="cb4-30"><a href="#cb4-30" tabindex="-1"></a><span class="co">#&gt; 6 0.2481593 0.6363636 0.4355263 0.5086542</span></span>
+<span id="cb4-31"><a href="#cb4-31" tabindex="-1"></a><span class="co">#&gt; 7 0.2939489 0.4355263 0.7272727 0.5999281</span></span>
+<span id="cb4-32"><a href="#cb4-32" tabindex="-1"></a><span class="co">#&gt; 8 0.3440405 0.5086542 0.5999281 0.8181818</span></span></code></pre></div>
 </div>
 <div id="verifying-the-registration" class="section level3">
 <h3>Verifying the registration</h3>
@@ -589,14 +589,14 @@ randomized pairing rule.</p>
 <span id="cb5-2"><a href="#cb5-2" tabindex="-1"></a>freq <span class="ot">&lt;-</span> <span class="fu">tabulate</span>(sim<span class="sc">$</span>sample, <span class="at">nbins =</span> <span class="fu">length</span>(pik)) <span class="sc">/</span> <span class="dv">5000</span></span>
 <span id="cb5-3"><a href="#cb5-3" tabindex="-1"></a><span class="fu">cbind</span>(<span class="at">target =</span> pik, <span class="at">empirical =</span> freq)</span>
 <span id="cb5-4"><a href="#cb5-4" tabindex="-1"></a><span class="co">#&gt;         target empirical</span></span>
-<span id="cb5-5"><a href="#cb5-5" tabindex="-1"></a><span class="co">#&gt; [1,] 0.1818182    0.1844</span></span>
-<span id="cb5-6"><a href="#cb5-6" tabindex="-1"></a><span class="co">#&gt; [2,] 0.2727273    0.2752</span></span>
-<span id="cb5-7"><a href="#cb5-7" tabindex="-1"></a><span class="co">#&gt; [3,] 0.3636364    0.3658</span></span>
-<span id="cb5-8"><a href="#cb5-8" tabindex="-1"></a><span class="co">#&gt; [4,] 0.4545455    0.4554</span></span>
-<span id="cb5-9"><a href="#cb5-9" tabindex="-1"></a><span class="co">#&gt; [5,] 0.5454545    0.5438</span></span>
-<span id="cb5-10"><a href="#cb5-10" tabindex="-1"></a><span class="co">#&gt; [6,] 0.6363636    0.6240</span></span>
-<span id="cb5-11"><a href="#cb5-11" tabindex="-1"></a><span class="co">#&gt; [7,] 0.7272727    0.7232</span></span>
-<span id="cb5-12"><a href="#cb5-12" tabindex="-1"></a><span class="co">#&gt; [8,] 0.8181818    0.8282</span></span>
+<span id="cb5-5"><a href="#cb5-5" tabindex="-1"></a><span class="co">#&gt; [1,] 0.1818182    0.1824</span></span>
+<span id="cb5-6"><a href="#cb5-6" tabindex="-1"></a><span class="co">#&gt; [2,] 0.2727273    0.2704</span></span>
+<span id="cb5-7"><a href="#cb5-7" tabindex="-1"></a><span class="co">#&gt; [3,] 0.3636364    0.3644</span></span>
+<span id="cb5-8"><a href="#cb5-8" tabindex="-1"></a><span class="co">#&gt; [4,] 0.4545455    0.4496</span></span>
+<span id="cb5-9"><a href="#cb5-9" tabindex="-1"></a><span class="co">#&gt; [5,] 0.5454545    0.5298</span></span>
+<span id="cb5-10"><a href="#cb5-10" tabindex="-1"></a><span class="co">#&gt; [6,] 0.6363636    0.6434</span></span>
+<span id="cb5-11"><a href="#cb5-11" tabindex="-1"></a><span class="co">#&gt; [7,] 0.7272727    0.7284</span></span>
+<span id="cb5-12"><a href="#cb5-12" tabindex="-1"></a><span class="co">#&gt; [8,] 0.8181818    0.8316</span></span>
 <span id="cb5-13"><a href="#cb5-13" tabindex="-1"></a></span>
 <span id="cb5-14"><a href="#cb5-14" tabindex="-1"></a>N <span class="ot">&lt;-</span> <span class="fu">length</span>(pik)</span>
 <span id="cb5-15"><a href="#cb5-15" tabindex="-1"></a>co_occur <span class="ot">&lt;-</span> <span class="fu">matrix</span>(<span class="dv">0</span>, N, N)</span>
@@ -615,10 +615,10 @@ randomized pairing rule.</p>
 <span id="cb5-28"><a href="#cb5-28" tabindex="-1"></a>pairs<span class="sc">$</span>empirical <span class="ot">&lt;-</span> <span class="fu">round</span>(empirical_jip[<span class="fu">cbind</span>(pairs<span class="sc">$</span>i, pairs<span class="sc">$</span>j)], <span class="dv">4</span>)</span>
 <span id="cb5-29"><a href="#cb5-29" tabindex="-1"></a>pairs</span>
 <span id="cb5-30"><a href="#cb5-30" tabindex="-1"></a><span class="co">#&gt;   i j     HE empirical</span></span>
-<span id="cb5-31"><a href="#cb5-31" tabindex="-1"></a><span class="co">#&gt; 1 1 8 0.1289    0.1308</span></span>
-<span id="cb5-32"><a href="#cb5-32" tabindex="-1"></a><span class="co">#&gt; 2 2 7 0.1682    0.1570</span></span>
-<span id="cb5-33"><a href="#cb5-33" tabindex="-1"></a><span class="co">#&gt; 3 3 6 0.1935    0.1754</span></span>
-<span id="cb5-34"><a href="#cb5-34" tabindex="-1"></a><span class="co">#&gt; 4 5 8 0.4237    0.4318</span></span></code></pre></div>
+<span id="cb5-31"><a href="#cb5-31" tabindex="-1"></a><span class="co">#&gt; 1 1 8 0.1289    0.1304</span></span>
+<span id="cb5-32"><a href="#cb5-32" tabindex="-1"></a><span class="co">#&gt; 2 2 7 0.1682    0.1590</span></span>
+<span id="cb5-33"><a href="#cb5-33" tabindex="-1"></a><span class="co">#&gt; 3 3 6 0.1935    0.1874</span></span>
+<span id="cb5-34"><a href="#cb5-34" tabindex="-1"></a><span class="co">#&gt; 4 5 8 0.4237    0.4230</span></span></code></pre></div>
 <p>The first-order frequencies should agree within Monte Carlo error.
 Differences in the pairwise columns measure approximation error, not
 failure of the pivotal sampler. If that error is unacceptable, omit
@@ -657,7 +657,7 @@ wrapper is minimal. Here we wrap <code>UPtille</code> and
 <span id="cb6-23"><a href="#cb6-23" tabindex="-1"></a>pik <span class="ot">&lt;-</span> <span class="fu">inclusion_prob</span>(<span class="fu">c</span>(<span class="dv">2</span>, <span class="dv">3</span>, <span class="dv">4</span>, <span class="dv">5</span>, <span class="dv">6</span>, <span class="dv">7</span>, <span class="dv">8</span>, <span class="dv">9</span>), <span class="at">n =</span> <span class="dv">4</span>)</span>
 <span id="cb6-24"><a href="#cb6-24" tabindex="-1"></a>s <span class="ot">&lt;-</span> <span class="fu">unequal_prob_wor</span>(pik, <span class="at">method =</span> <span class="st">&quot;tille&quot;</span>)</span>
 <span id="cb6-25"><a href="#cb6-25" tabindex="-1"></a>s</span>
-<span id="cb6-26"><a href="#cb6-26" tabindex="-1"></a><span class="co">#&gt; Unequal prob WOR [tille] (n=4, N=8): 4 5 6 8</span></span>
+<span id="cb6-26"><a href="#cb6-26" tabindex="-1"></a><span class="co">#&gt; Unequal prob WOR [tille] (n=4, N=8): 2 4 5 8</span></span>
 <span id="cb6-27"><a href="#cb6-27" tabindex="-1"></a></span>
 <span id="cb6-28"><a href="#cb6-28" tabindex="-1"></a><span class="co"># Exact joint inclusion probabilities from UPtillepi2</span></span>
 <span id="cb6-29"><a href="#cb6-29" tabindex="-1"></a><span class="fu">round</span>(<span class="fu">joint_inclusion_prob</span>(s), <span class="dv">4</span>)</span>
@@ -687,7 +687,7 @@ wrapper is minimal. Here we wrap <code>UPtille</code> and
 <h2>Example 3: A custom with-replacement method</h2>
 <p>With-replacement callbacks receive expected hits rather than
 inclusion probabilities. The sample callback returns <code>n</code>
-indices and may repeat units; the joint callback returns <span class="math inline">\(E(N_iN_j)\)</span>, not joint inclusion
+indices and may repeat units, and the joint callback returns <span class="math inline">\(E(N_iN_j)\)</span>, not joint inclusion
 probabilities. This example reproduces a multinomial PPS design under a
 custom name:</p>
 <div class="sourceCode" id="cb7"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" tabindex="-1"></a>custom_multinomial_sample <span class="ot">&lt;-</span> <span class="cf">function</span>(hits, <span class="at">n =</span> <span class="cn">NULL</span>, <span class="at">prn =</span> <span class="cn">NULL</span>, ...) {</span>
@@ -716,7 +716,7 @@ custom name:</p>
 <span id="cb7-24"><a href="#cb7-24" tabindex="-1"></a>hits <span class="ot">&lt;-</span> <span class="fu">expected_hits</span>(<span class="fu">c</span>(<span class="dv">2</span>, <span class="dv">3</span>, <span class="dv">5</span>, <span class="dv">10</span>), <span class="at">n =</span> <span class="dv">4</span>)</span>
 <span id="cb7-25"><a href="#cb7-25" tabindex="-1"></a>s_wr <span class="ot">&lt;-</span> <span class="fu">unequal_prob_wr</span>(hits, <span class="at">method =</span> <span class="st">&quot;custom_multinomial&quot;</span>)</span>
 <span id="cb7-26"><a href="#cb7-26" tabindex="-1"></a>s_wr</span>
-<span id="cb7-27"><a href="#cb7-27" tabindex="-1"></a><span class="co">#&gt; Unequal prob WR [custom_multinomial] (n=4, N=4): 4 4 4 3</span></span>
+<span id="cb7-27"><a href="#cb7-27" tabindex="-1"></a><span class="co">#&gt; Unequal prob WR [custom_multinomial] (n=4, N=4): 4 2 3 4</span></span>
 <span id="cb7-28"><a href="#cb7-28" tabindex="-1"></a><span class="fu">joint_expected_hits</span>(s_wr)</span>
 <span id="cb7-29"><a href="#cb7-29" tabindex="-1"></a><span class="co">#&gt;      [,1] [,2] [,3] [,4]</span></span>
 <span id="cb7-30"><a href="#cb7-30" tabindex="-1"></a><span class="co">#&gt; [1,] 0.52 0.18 0.30  0.6</span></span>
@@ -724,9 +724,10 @@ custom name:</p>
 <span id="cb7-32"><a href="#cb7-32" tabindex="-1"></a><span class="co">#&gt; [3,] 0.30 0.45 1.75  1.5</span></span>
 <span id="cb7-33"><a href="#cb7-33" tabindex="-1"></a><span class="co">#&gt; [4,] 0.60 0.90 1.50  5.0</span></span>
 <span id="cb7-34"><a href="#cb7-34" tabindex="-1"></a><span class="fu">joint_expected_hits</span>(s_wr, <span class="at">sampled_only =</span> <span class="cn">TRUE</span>)</span>
-<span id="cb7-35"><a href="#cb7-35" tabindex="-1"></a><span class="co">#&gt;      3   4</span></span>
-<span id="cb7-36"><a href="#cb7-36" tabindex="-1"></a><span class="co">#&gt; 3 1.75 1.5</span></span>
-<span id="cb7-37"><a href="#cb7-37" tabindex="-1"></a><span class="co">#&gt; 4 1.50 5.0</span></span></code></pre></div>
+<span id="cb7-35"><a href="#cb7-35" tabindex="-1"></a><span class="co">#&gt;      2    3   4</span></span>
+<span id="cb7-36"><a href="#cb7-36" tabindex="-1"></a><span class="co">#&gt; 2 0.87 0.45 0.9</span></span>
+<span id="cb7-37"><a href="#cb7-37" tabindex="-1"></a><span class="co">#&gt; 3 0.45 1.75 1.5</span></span>
+<span id="cb7-38"><a href="#cb7-38" tabindex="-1"></a><span class="co">#&gt; 4 0.90 1.50 5.0</span></span></code></pre></div>
 </div>
 <div id="example-4-a-custom-balanced-method" class="section level2">
 <h2>Example 4: A custom balanced method</h2>
@@ -741,9 +742,10 @@ programming and can therefore give different samples than the built-in
 as the caller supplied it (validated, but without the sample-size
 constraint prepended), so we <code>cbind(pik, aux)</code> ourselves
 because <code>samplecube()</code> expects the size constraint as a
-balancing column. And since the cube method produces a high-entropy
-design, we can pass <code>he_jip</code> as the <code>joint_fn</code>,
-which is exactly what the built-in method uses.</p>
+balancing column. We also pass <code>he_jip</code> as the
+<code>joint_fn</code>, which is exactly what the built-in method uses.
+Like the built-in, this approximation depends only on <code>pik</code>
+and ignores the balancing constraints.</p>
 <div class="sourceCode" id="cb8"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" tabindex="-1"></a>cube_lp_sample <span class="ot">&lt;-</span> <span class="cf">function</span>(pik, <span class="at">n =</span> <span class="cn">NULL</span>, <span class="at">aux =</span> <span class="cn">NULL</span>, ...) {</span>
 <span id="cb8-2"><a href="#cb8-2" tabindex="-1"></a>  X <span class="ot">&lt;-</span> <span class="fu">cbind</span>(pik, aux)</span>
 <span id="cb8-3"><a href="#cb8-3" tabindex="-1"></a>  <span class="fu">which</span>(sampling<span class="sc">::</span><span class="fu">samplecube</span>(X, pik, <span class="at">comment =</span> <span class="cn">FALSE</span>) <span class="sc">==</span> <span class="dv">1</span>)</span>
@@ -762,11 +764,11 @@ which is exactly what the built-in method uses.</p>
 <span id="cb8-16"><a href="#cb8-16" tabindex="-1"></a>x <span class="ot">&lt;-</span> <span class="fu">matrix</span>(<span class="fu">c</span>(<span class="dv">10</span>, <span class="dv">20</span>, <span class="dv">15</span>, <span class="dv">25</span>, <span class="dv">30</span>, <span class="dv">35</span>, <span class="dv">40</span>, <span class="dv">45</span>))</span>
 <span id="cb8-17"><a href="#cb8-17" tabindex="-1"></a>s <span class="ot">&lt;-</span> <span class="fu">balanced_wor</span>(pik, <span class="at">aux =</span> x, <span class="at">method =</span> <span class="st">&quot;cube_lp&quot;</span>)</span>
 <span id="cb8-18"><a href="#cb8-18" tabindex="-1"></a>s</span>
-<span id="cb8-19"><a href="#cb8-19" tabindex="-1"></a><span class="co">#&gt; Balanced WOR [cube_lp] (n=4, N=8): 5 6 7 8</span></span>
+<span id="cb8-19"><a href="#cb8-19" tabindex="-1"></a><span class="co">#&gt; Balanced WOR [cube_lp] (n=4, N=8): 2 5 6 8</span></span>
 <span id="cb8-20"><a href="#cb8-20" tabindex="-1"></a></span>
 <span id="cb8-21"><a href="#cb8-21" tabindex="-1"></a><span class="co"># Balancing check: HT estimate of the aux total vs the true total</span></span>
 <span id="cb8-22"><a href="#cb8-22" tabindex="-1"></a><span class="fu">colSums</span>(x[s<span class="sc">$</span>sample, , <span class="at">drop =</span> <span class="cn">FALSE</span>] <span class="sc">/</span> pik[s<span class="sc">$</span>sample]) <span class="sc">-</span> <span class="fu">colSums</span>(x)</span>
-<span id="cb8-23"><a href="#cb8-23" tabindex="-1"></a><span class="co">#&gt; [1] 2.842171e-14</span></span></code></pre></div>
+<span id="cb8-23"><a href="#cb8-23" tabindex="-1"></a><span class="co">#&gt; [1] 18.33333</span></span></code></pre></div>
 <p>To support stratification as well, register with
 <code>supports_strata = TRUE</code> and add a <code>strata</code>
 argument to the sampler. The dispatcher passes <code>strata</code> as
@@ -812,72 +814,79 @@ coordinate matrix that the caller passes to
 <p><code>sondage</code> ships LPM2 and SCPS as the built-in spread-only
 methods <code>balanced_wor(pik, spread = , method = &quot;lpm2&quot;)</code> and
 <code>balanced_wor(pik, spread = , method = &quot;scps&quot;)</code>. Here we
-register its sibling LPM1 <span class="citation">(Grafström, Lundström,
-and Schelin 2012)</span>, which differs only in the pair rule: a random
-undecided unit competes with its nearest undecided neighbour <em>only
-when the two are mutual nearest neighbours</em>, giving slightly better
-spread at extra cost. The in-house SCPS core uses the maximal-weight
-rule of <span class="citation">Grafström (2012)</span> with a weighted
-quickselect distance cutoff. Methods not shipped in
-<code>sondage</code>, such as local cube, can still be supplied through
-the same registration contract.</p>
+register its sibling LPM1 <span class="citation">(Grafström et al.
+2012)</span>, which differs only in the pair rule: a random undecided
+unit competes with its nearest undecided neighbor <em>only when the two
+are mutual nearest neighbors</em>, giving slightly better spread at
+extra cost. The in-house SCPS core uses the maximal-weight rule of <span class="citation">Grafström (2012)</span> with a weighted quickselect
+distance cutoff. Methods not shipped in <code>sondage</code>, such as
+local cube, can still be supplied through the same registration
+contract.</p>
 <div class="sourceCode" id="cb10"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" tabindex="-1"></a>lpm1_sample <span class="ot">&lt;-</span> <span class="cf">function</span>(pik, <span class="at">n =</span> <span class="cn">NULL</span>, <span class="at">aux =</span> <span class="cn">NULL</span>, <span class="at">spread =</span> <span class="cn">NULL</span>, ...) {</span>
-<span id="cb10-2"><a href="#cb10-2" tabindex="-1"></a>  d <span class="ot">&lt;-</span> <span class="fu">as.matrix</span>(<span class="fu">dist</span>(spread))</span>
-<span id="cb10-3"><a href="#cb10-3" tabindex="-1"></a>  <span class="fu">diag</span>(d) <span class="ot">&lt;-</span> <span class="cn">Inf</span></span>
-<span id="cb10-4"><a href="#cb10-4" tabindex="-1"></a>  p <span class="ot">&lt;-</span> pik</span>
-<span id="cb10-5"><a href="#cb10-5" tabindex="-1"></a>  eps <span class="ot">&lt;-</span> <span class="fl">1e-9</span></span>
-<span id="cb10-6"><a href="#cb10-6" tabindex="-1"></a>  <span class="cf">repeat</span> {</span>
-<span id="cb10-7"><a href="#cb10-7" tabindex="-1"></a>    u <span class="ot">&lt;-</span> <span class="fu">which</span>(p <span class="sc">&gt;</span> eps <span class="sc">&amp;</span> p <span class="sc">&lt;</span> <span class="dv">1</span> <span class="sc">-</span> eps)</span>
-<span id="cb10-8"><a href="#cb10-8" tabindex="-1"></a>    <span class="cf">if</span> (<span class="fu">length</span>(u) <span class="sc">==</span> <span class="dv">0</span><span class="dt">L</span>) {</span>
-<span id="cb10-9"><a href="#cb10-9" tabindex="-1"></a>      <span class="cf">break</span></span>
-<span id="cb10-10"><a href="#cb10-10" tabindex="-1"></a>    }</span>
-<span id="cb10-11"><a href="#cb10-11" tabindex="-1"></a>    <span class="cf">if</span> (<span class="fu">length</span>(u) <span class="sc">==</span> <span class="dv">1</span><span class="dt">L</span>) {</span>
-<span id="cb10-12"><a href="#cb10-12" tabindex="-1"></a>      p[u] <span class="ot">&lt;-</span> <span class="fu">as.numeric</span>(<span class="fu">runif</span>(<span class="dv">1</span>) <span class="sc">&lt;</span> p[u])</span>
-<span id="cb10-13"><a href="#cb10-13" tabindex="-1"></a>      <span class="cf">break</span></span>
-<span id="cb10-14"><a href="#cb10-14" tabindex="-1"></a>    }</span>
-<span id="cb10-15"><a href="#cb10-15" tabindex="-1"></a>    i <span class="ot">&lt;-</span> u[<span class="fu">sample.int</span>(<span class="fu">length</span>(u), <span class="dv">1</span><span class="dt">L</span>)]</span>
-<span id="cb10-16"><a href="#cb10-16" tabindex="-1"></a>    v <span class="ot">&lt;-</span> u[u <span class="sc">!=</span> i]</span>
-<span id="cb10-17"><a href="#cb10-17" tabindex="-1"></a>    j <span class="ot">&lt;-</span> v[<span class="fu">which.min</span>(d[i, v])]</span>
-<span id="cb10-18"><a href="#cb10-18" tabindex="-1"></a>    w <span class="ot">&lt;-</span> u[u <span class="sc">!=</span> j]</span>
-<span id="cb10-19"><a href="#cb10-19" tabindex="-1"></a>    <span class="cf">if</span> (w[<span class="fu">which.min</span>(d[j, w])] <span class="sc">!=</span> i) {</span>
-<span id="cb10-20"><a href="#cb10-20" tabindex="-1"></a>      <span class="cf">next</span> <span class="co"># not mutual nearest neighbours: redraw i</span></span>
-<span id="cb10-21"><a href="#cb10-21" tabindex="-1"></a>    }</span>
-<span id="cb10-22"><a href="#cb10-22" tabindex="-1"></a>    s <span class="ot">&lt;-</span> p[i] <span class="sc">+</span> p[j]</span>
-<span id="cb10-23"><a href="#cb10-23" tabindex="-1"></a>    <span class="cf">if</span> (s <span class="sc">&gt;</span> <span class="dv">1</span>) {</span>
-<span id="cb10-24"><a href="#cb10-24" tabindex="-1"></a>      <span class="cf">if</span> (<span class="fu">runif</span>(<span class="dv">1</span>) <span class="sc">&lt;</span> (<span class="dv">1</span> <span class="sc">-</span> p[j]) <span class="sc">/</span> (<span class="dv">2</span> <span class="sc">-</span> s)) {</span>
-<span id="cb10-25"><a href="#cb10-25" tabindex="-1"></a>        p[i] <span class="ot">&lt;-</span> <span class="dv">1</span></span>
-<span id="cb10-26"><a href="#cb10-26" tabindex="-1"></a>        p[j] <span class="ot">&lt;-</span> s <span class="sc">-</span> <span class="dv">1</span></span>
-<span id="cb10-27"><a href="#cb10-27" tabindex="-1"></a>      } <span class="cf">else</span> {</span>
-<span id="cb10-28"><a href="#cb10-28" tabindex="-1"></a>        p[j] <span class="ot">&lt;-</span> <span class="dv">1</span></span>
-<span id="cb10-29"><a href="#cb10-29" tabindex="-1"></a>        p[i] <span class="ot">&lt;-</span> s <span class="sc">-</span> <span class="dv">1</span></span>
-<span id="cb10-30"><a href="#cb10-30" tabindex="-1"></a>      }</span>
-<span id="cb10-31"><a href="#cb10-31" tabindex="-1"></a>    } <span class="cf">else</span> {</span>
-<span id="cb10-32"><a href="#cb10-32" tabindex="-1"></a>      <span class="cf">if</span> (<span class="fu">runif</span>(<span class="dv">1</span>) <span class="sc">&lt;</span> p[j] <span class="sc">/</span> s) {</span>
-<span id="cb10-33"><a href="#cb10-33" tabindex="-1"></a>        p[j] <span class="ot">&lt;-</span> s</span>
-<span id="cb10-34"><a href="#cb10-34" tabindex="-1"></a>        p[i] <span class="ot">&lt;-</span> <span class="dv">0</span></span>
-<span id="cb10-35"><a href="#cb10-35" tabindex="-1"></a>      } <span class="cf">else</span> {</span>
-<span id="cb10-36"><a href="#cb10-36" tabindex="-1"></a>        p[i] <span class="ot">&lt;-</span> s</span>
-<span id="cb10-37"><a href="#cb10-37" tabindex="-1"></a>        p[j] <span class="ot">&lt;-</span> <span class="dv">0</span></span>
-<span id="cb10-38"><a href="#cb10-38" tabindex="-1"></a>      }</span>
-<span id="cb10-39"><a href="#cb10-39" tabindex="-1"></a>    }</span>
-<span id="cb10-40"><a href="#cb10-40" tabindex="-1"></a>  }</span>
-<span id="cb10-41"><a href="#cb10-41" tabindex="-1"></a>  <span class="fu">which</span>(p <span class="sc">&gt;</span> <span class="dv">1</span> <span class="sc">-</span> eps)</span>
-<span id="cb10-42"><a href="#cb10-42" tabindex="-1"></a>}</span>
-<span id="cb10-43"><a href="#cb10-43" tabindex="-1"></a></span>
-<span id="cb10-44"><a href="#cb10-44" tabindex="-1"></a><span class="fu">register_method</span>(</span>
-<span id="cb10-45"><a href="#cb10-45" tabindex="-1"></a>  <span class="st">&quot;lpm1&quot;</span>,</span>
-<span id="cb10-46"><a href="#cb10-46" tabindex="-1"></a>  <span class="at">type             =</span> <span class="st">&quot;balanced&quot;</span>,</span>
-<span id="cb10-47"><a href="#cb10-47" tabindex="-1"></a>  <span class="at">sample_fn        =</span> lpm1_sample,</span>
-<span id="cb10-48"><a href="#cb10-48" tabindex="-1"></a>  <span class="at">variance_family  =</span> <span class="st">&quot;unsupported&quot;</span>,</span>
-<span id="cb10-49"><a href="#cb10-49" tabindex="-1"></a>  <span class="at">supports_aux     =</span> <span class="cn">FALSE</span>,</span>
-<span id="cb10-50"><a href="#cb10-50" tabindex="-1"></a>  <span class="at">supports_spread  =</span> <span class="cn">TRUE</span>,</span>
-<span id="cb10-51"><a href="#cb10-51" tabindex="-1"></a>  <span class="at">probabilities    =</span> <span class="st">&quot;exact&quot;</span></span>
-<span id="cb10-52"><a href="#cb10-52" tabindex="-1"></a>)</span></code></pre></div>
+<span id="cb10-2"><a href="#cb10-2" tabindex="-1"></a>  <span class="cf">if</span> (<span class="fu">is.null</span>(spread)) {</span>
+<span id="cb10-3"><a href="#cb10-3" tabindex="-1"></a>    <span class="fu">stop</span>(<span class="st">&quot;method &#39;lpm1&#39; requires &#39;spread&#39;&quot;</span>, <span class="at">call. =</span> <span class="cn">FALSE</span>)</span>
+<span id="cb10-4"><a href="#cb10-4" tabindex="-1"></a>  }</span>
+<span id="cb10-5"><a href="#cb10-5" tabindex="-1"></a>  d <span class="ot">&lt;-</span> <span class="fu">as.matrix</span>(<span class="fu">dist</span>(spread))</span>
+<span id="cb10-6"><a href="#cb10-6" tabindex="-1"></a>  <span class="fu">diag</span>(d) <span class="ot">&lt;-</span> <span class="cn">Inf</span></span>
+<span id="cb10-7"><a href="#cb10-7" tabindex="-1"></a>  p <span class="ot">&lt;-</span> pik</span>
+<span id="cb10-8"><a href="#cb10-8" tabindex="-1"></a>  eps <span class="ot">&lt;-</span> <span class="dv">1</span>e<span class="sc">-</span><span class="dv">9</span></span>
+<span id="cb10-9"><a href="#cb10-9" tabindex="-1"></a>  <span class="cf">repeat</span> {</span>
+<span id="cb10-10"><a href="#cb10-10" tabindex="-1"></a>    u <span class="ot">&lt;-</span> <span class="fu">which</span>(p <span class="sc">&gt;</span> eps <span class="sc">&amp;</span> p <span class="sc">&lt;</span> <span class="dv">1</span> <span class="sc">-</span> eps)</span>
+<span id="cb10-11"><a href="#cb10-11" tabindex="-1"></a>    <span class="cf">if</span> (<span class="fu">length</span>(u) <span class="sc">==</span> <span class="dv">0</span><span class="dt">L</span>) {</span>
+<span id="cb10-12"><a href="#cb10-12" tabindex="-1"></a>      <span class="cf">break</span></span>
+<span id="cb10-13"><a href="#cb10-13" tabindex="-1"></a>    }</span>
+<span id="cb10-14"><a href="#cb10-14" tabindex="-1"></a>    <span class="cf">if</span> (<span class="fu">length</span>(u) <span class="sc">==</span> <span class="dv">1</span><span class="dt">L</span>) {</span>
+<span id="cb10-15"><a href="#cb10-15" tabindex="-1"></a>      p[u] <span class="ot">&lt;-</span> <span class="fu">as.numeric</span>(<span class="fu">runif</span>(<span class="dv">1</span>) <span class="sc">&lt;</span> p[u])</span>
+<span id="cb10-16"><a href="#cb10-16" tabindex="-1"></a>      <span class="cf">break</span></span>
+<span id="cb10-17"><a href="#cb10-17" tabindex="-1"></a>    }</span>
+<span id="cb10-18"><a href="#cb10-18" tabindex="-1"></a>    i <span class="ot">&lt;-</span> u[<span class="fu">sample.int</span>(<span class="fu">length</span>(u), <span class="dv">1</span><span class="dt">L</span>)]</span>
+<span id="cb10-19"><a href="#cb10-19" tabindex="-1"></a>    v <span class="ot">&lt;-</span> u[u <span class="sc">!=</span> i]</span>
+<span id="cb10-20"><a href="#cb10-20" tabindex="-1"></a>    j <span class="ot">&lt;-</span> v[<span class="fu">which.min</span>(d[i, v])]</span>
+<span id="cb10-21"><a href="#cb10-21" tabindex="-1"></a>    w <span class="ot">&lt;-</span> u[u <span class="sc">!=</span> j]</span>
+<span id="cb10-22"><a href="#cb10-22" tabindex="-1"></a>    <span class="cf">if</span> (w[<span class="fu">which.min</span>(d[j, w])] <span class="sc">!=</span> i) {</span>
+<span id="cb10-23"><a href="#cb10-23" tabindex="-1"></a>      <span class="cf">next</span> <span class="co"># not mutual nearest neighbors: redraw i</span></span>
+<span id="cb10-24"><a href="#cb10-24" tabindex="-1"></a>    }</span>
+<span id="cb10-25"><a href="#cb10-25" tabindex="-1"></a>    s <span class="ot">&lt;-</span> p[i] <span class="sc">+</span> p[j]</span>
+<span id="cb10-26"><a href="#cb10-26" tabindex="-1"></a>    <span class="cf">if</span> (s <span class="sc">&gt;</span> <span class="dv">1</span>) {</span>
+<span id="cb10-27"><a href="#cb10-27" tabindex="-1"></a>      <span class="cf">if</span> (<span class="fu">runif</span>(<span class="dv">1</span>) <span class="sc">&lt;</span> (<span class="dv">1</span> <span class="sc">-</span> p[j]) <span class="sc">/</span> (<span class="dv">2</span> <span class="sc">-</span> s)) {</span>
+<span id="cb10-28"><a href="#cb10-28" tabindex="-1"></a>        p[i] <span class="ot">&lt;-</span> <span class="dv">1</span></span>
+<span id="cb10-29"><a href="#cb10-29" tabindex="-1"></a>        p[j] <span class="ot">&lt;-</span> s <span class="sc">-</span> <span class="dv">1</span></span>
+<span id="cb10-30"><a href="#cb10-30" tabindex="-1"></a>      } <span class="cf">else</span> {</span>
+<span id="cb10-31"><a href="#cb10-31" tabindex="-1"></a>        p[j] <span class="ot">&lt;-</span> <span class="dv">1</span></span>
+<span id="cb10-32"><a href="#cb10-32" tabindex="-1"></a>        p[i] <span class="ot">&lt;-</span> s <span class="sc">-</span> <span class="dv">1</span></span>
+<span id="cb10-33"><a href="#cb10-33" tabindex="-1"></a>      }</span>
+<span id="cb10-34"><a href="#cb10-34" tabindex="-1"></a>    } <span class="cf">else</span> {</span>
+<span id="cb10-35"><a href="#cb10-35" tabindex="-1"></a>      <span class="cf">if</span> (<span class="fu">runif</span>(<span class="dv">1</span>) <span class="sc">&lt;</span> p[j] <span class="sc">/</span> s) {</span>
+<span id="cb10-36"><a href="#cb10-36" tabindex="-1"></a>        p[j] <span class="ot">&lt;-</span> s</span>
+<span id="cb10-37"><a href="#cb10-37" tabindex="-1"></a>        p[i] <span class="ot">&lt;-</span> <span class="dv">0</span></span>
+<span id="cb10-38"><a href="#cb10-38" tabindex="-1"></a>      } <span class="cf">else</span> {</span>
+<span id="cb10-39"><a href="#cb10-39" tabindex="-1"></a>        p[i] <span class="ot">&lt;-</span> s</span>
+<span id="cb10-40"><a href="#cb10-40" tabindex="-1"></a>        p[j] <span class="ot">&lt;-</span> <span class="dv">0</span></span>
+<span id="cb10-41"><a href="#cb10-41" tabindex="-1"></a>      }</span>
+<span id="cb10-42"><a href="#cb10-42" tabindex="-1"></a>    }</span>
+<span id="cb10-43"><a href="#cb10-43" tabindex="-1"></a>  }</span>
+<span id="cb10-44"><a href="#cb10-44" tabindex="-1"></a>  <span class="fu">which</span>(p <span class="sc">&gt;</span> <span class="dv">1</span> <span class="sc">-</span> eps)</span>
+<span id="cb10-45"><a href="#cb10-45" tabindex="-1"></a>}</span>
+<span id="cb10-46"><a href="#cb10-46" tabindex="-1"></a></span>
+<span id="cb10-47"><a href="#cb10-47" tabindex="-1"></a><span class="fu">register_method</span>(</span>
+<span id="cb10-48"><a href="#cb10-48" tabindex="-1"></a>  <span class="st">&quot;lpm1&quot;</span>,</span>
+<span id="cb10-49"><a href="#cb10-49" tabindex="-1"></a>  <span class="at">type             =</span> <span class="st">&quot;balanced&quot;</span>,</span>
+<span id="cb10-50"><a href="#cb10-50" tabindex="-1"></a>  <span class="at">sample_fn        =</span> lpm1_sample,</span>
+<span id="cb10-51"><a href="#cb10-51" tabindex="-1"></a>  <span class="at">variance_family  =</span> <span class="st">&quot;unsupported&quot;</span>,</span>
+<span id="cb10-52"><a href="#cb10-52" tabindex="-1"></a>  <span class="at">supports_aux     =</span> <span class="cn">FALSE</span>,</span>
+<span id="cb10-53"><a href="#cb10-53" tabindex="-1"></a>  <span class="at">supports_spread  =</span> <span class="cn">TRUE</span>,</span>
+<span id="cb10-54"><a href="#cb10-54" tabindex="-1"></a>  <span class="at">probabilities    =</span> <span class="st">&quot;exact&quot;</span></span>
+<span id="cb10-55"><a href="#cb10-55" tabindex="-1"></a>)</span></code></pre></div>
 <p>Since the local pivotal method and SCPS spread but never exactly
 balance on auxiliary totals, a custom method in this family is
 registered with <code>supports_aux = FALSE</code>. A caller who passes
 <code>aux</code> then gets an immediate error instead of a sample that
-silently ignored the requested balancing constraints.</p>
+silently ignored the requested balancing constraints. The flags state
+what a method can use, not what it requires, so
+<code>balanced_wor()</code> still calls <code>sample_fn</code> when
+<code>spread</code> is missing. A method that cannot work without
+<code>spread</code> checks for it, as <code>lpm1_sample()</code>
+does.</p>
 <div class="sourceCode" id="cb11"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">25</span>)</span>
 <span id="cb11-2"><a href="#cb11-2" tabindex="-1"></a>N <span class="ot">&lt;-</span> <span class="dv">200</span></span>
 <span id="cb11-3"><a href="#cb11-3" tabindex="-1"></a>coords <span class="ot">&lt;-</span> <span class="fu">cbind</span>(<span class="fu">runif</span>(N), <span class="fu">runif</span>(N))</span>
@@ -887,7 +896,7 @@ silently ignored the requested balancing constraints.</p>
 <span id="cb11-7"><a href="#cb11-7" tabindex="-1"></a>s</span>
 <span id="cb11-8"><a href="#cb11-8" tabindex="-1"></a><span class="co">#&gt; Balanced WOR [lpm1] (n=30, N=200): 5 6 7 20 21 24 35 48 51 55 ...</span></span>
 <span id="cb11-9"><a href="#cb11-9" tabindex="-1"></a></span>
-<span id="cb11-10"><a href="#cb11-10" tabindex="-1"></a><span class="co"># Spread diagnostic: mean distance to the nearest sampled neighbour</span></span>
+<span id="cb11-10"><a href="#cb11-10" tabindex="-1"></a><span class="co"># Spread diagnostic: mean distance to the nearest sampled neighbor</span></span>
 <span id="cb11-11"><a href="#cb11-11" tabindex="-1"></a><span class="co"># (larger is better spread)</span></span>
 <span id="cb11-12"><a href="#cb11-12" tabindex="-1"></a>nn_dist <span class="ot">&lt;-</span> <span class="cf">function</span>(idx) {</span>
 <span id="cb11-13"><a href="#cb11-13" tabindex="-1"></a>  d <span class="ot">&lt;-</span> <span class="fu">as.matrix</span>(<span class="fu">dist</span>(coords[idx, ]))</span>
@@ -911,7 +920,7 @@ toward zero), so <code>joint_fn</code> is usually left as
 <code>NULL</code> and <code>joint_inclusion_prob()</code> /
 <code>sampling_cov()</code> will error for these methods. In practice,
 variance for spatially balanced samples is estimated with
-local-neighbourhood estimators such as the local mean estimator of <span class="citation">Grafström and Schelin (2014)</span>, which
+local-neighborhood estimators such as the local mean estimator of <span class="citation">Grafström and Schelin (2014)</span>, which
 <code>sondage</code> does not implement yet.</p>
 </div>
 <div id="writing-a-joint_fn" class="section level2">
@@ -920,30 +929,29 @@ local-neighbourhood estimators such as the local mean estimator of <span class="
 <code>joint_inclusion_prob()</code>, <code>joint_expected_hits()</code>,
 and <code>sampling_cov()</code>. Five common strategies:</p>
 <ol style="list-style-type: decimal">
-<li><p><strong>Exact formula.</strong> When the design has a known
-closed form (e.g., <code>UPtillepi2</code> above).</p></li>
-<li><p><strong><code>he_jip()</code>.</strong> The high-entropy
-approximation <span class="citation">(Brewer and Donadio 2003)</span>.
-Best for maximum-entropy and high-entropy designs (Sampford, Tillé, and
-most <span class="math inline">\(\pi\)</span>ps procedures). Uses
-optimised C code internally. Pass it directly:
+<li><p>An exact formula, when the design has a known closed form (e.g.,
+<code>UPtillepi2</code> above).</p></li>
+<li><p><code>he_jip()</code>, the high-entropy approximation <span class="citation">(Brewer and Donadio 2003)</span>. Best for
+maximum-entropy and high-entropy designs (Sampford, Tillé, and most
+<span class="math inline">\(\pi\)</span>ps procedures). Uses optimized C
+code internally. Pass it directly:
 <code>joint_fn = he_jip</code>.</p></li>
-<li><p><strong><code>hajek_jip()</code>.</strong> The Hajek <span class="citation">(1964)</span> approximation based on conditional
+<li><p><code>hajek_jip()</code>, the Hajek <span class="citation">(1964)</span> approximation based on conditional
 Poisson (rejective) sampling theory. Simpler formula and slightly
 cheaper, but generally a bit less accurate than <code>he_jip()</code>.
 Best when the design is obtained by conditioning independent Poisson
 trials on the sample size. Pass it directly:
 <code>joint_fn = hajek_jip</code>.</p></li>
-<li><p><strong>Other approximations</strong>. Other methods exist in the
-literature and can be implemented as custom <code>joint_fn</code>
-functions. <span class="citation">Tillé (1996)</span> reviews several
-alternatives, including approximations based on Poisson, rejective, and
-successive sampling theory, each with different accuracy–computation
-trade-offs. Any function that accepts
+<li><p>Another approximation from the literature, written as a custom
+<code>joint_fn</code>. <span class="citation">Tillé (1996)</span>
+reviews several alternatives, including approximations based on Poisson,
+rejective, and successive sampling theory, each with different accuracy
+and computation trade-offs. Any function that accepts
 <code>(pik, sample_idx = NULL, ...)</code> and returns a symmetric
 matrix is a valid <code>joint_fn</code>.</p></li>
-<li><p><strong>Monte Carlo estimation.</strong> Resample <span class="math inline">\(B\)</span> times and estimate <span class="math inline">\(\hat{\pi}_{ij} = B^{-1} \sum_{b=1}^B I(i \in
-S_b)\, I(j \in S_b)\)</span>. Slow but universal:</p></li>
+<li><p>Monte Carlo estimation, which resamples <span class="math inline">\(B\)</span> times and estimates <span class="math inline">\(\hat{\pi}_{ij} = B^{-1} \sum_{b=1}^B I(i \in
+S_b)\, I(j \in S_b)\)</span>. It is slow but works for any
+design.</p></li>
 </ol>
 <div class="sourceCode" id="cb12"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" tabindex="-1"></a>mc_joint <span class="ot">&lt;-</span> <span class="cf">function</span>(pik, <span class="at">sample_idx =</span> <span class="cn">NULL</span>, ..., <span class="at">B =</span> <span class="dv">5000</span>) {</span>
 <span id="cb12-2"><a href="#cb12-2" tabindex="-1"></a>  N <span class="ot">&lt;-</span> <span class="fu">length</span>(pik)</span>
@@ -953,15 +961,14 @@ S_b)\, I(j \in S_b)\)</span>. Slow but universal:</p></li>
 <span id="cb12-6"><a href="#cb12-6" tabindex="-1"></a>    s <span class="ot">&lt;-</span> <span class="fu">my_sampler</span>(pik, <span class="at">n =</span> n)</span>
 <span id="cb12-7"><a href="#cb12-7" tabindex="-1"></a>    co[s, s] <span class="ot">&lt;-</span> co[s, s] <span class="sc">+</span> <span class="dv">1</span></span>
 <span id="cb12-8"><a href="#cb12-8" tabindex="-1"></a>  }</span>
-<span id="cb12-9"><a href="#cb12-9" tabindex="-1"></a>  pikl <span class="ot">&lt;-</span> co <span class="sc">/</span> B</span>
-<span id="cb12-10"><a href="#cb12-10" tabindex="-1"></a>  <span class="fu">diag</span>(pikl) <span class="ot">&lt;-</span> <span class="fu">tabulate</span>(<span class="fu">unlist</span>(</span>
-<span id="cb12-11"><a href="#cb12-11" tabindex="-1"></a>    <span class="fu">replicate</span>(B, <span class="fu">my_sampler</span>(pik, <span class="at">n =</span> n), <span class="at">simplify =</span> <span class="cn">FALSE</span>)</span>
-<span id="cb12-12"><a href="#cb12-12" tabindex="-1"></a>  ), <span class="at">nbins =</span> N) <span class="sc">/</span> B</span>
-<span id="cb12-13"><a href="#cb12-13" tabindex="-1"></a>  <span class="cf">if</span> (<span class="sc">!</span><span class="fu">is.null</span>(sample_idx)) {</span>
-<span id="cb12-14"><a href="#cb12-14" tabindex="-1"></a>    pikl <span class="ot">&lt;-</span> pikl[sample_idx, sample_idx, drop <span class="ot">=</span> <span class="cn">FALSE</span>]</span>
-<span id="cb12-15"><a href="#cb12-15" tabindex="-1"></a>  }</span>
-<span id="cb12-16"><a href="#cb12-16" tabindex="-1"></a>  pikl</span>
-<span id="cb12-17"><a href="#cb12-17" tabindex="-1"></a>}</span></code></pre></div>
+<span id="cb12-9"><a href="#cb12-9" tabindex="-1"></a>  <span class="co"># The diagonal of co / B estimates pik from the same draws. When the</span></span>
+<span id="cb12-10"><a href="#cb12-10" tabindex="-1"></a>  <span class="co"># design gives pik exactly, diag(pikl) &lt;- pik replaces the estimate.</span></span>
+<span id="cb12-11"><a href="#cb12-11" tabindex="-1"></a>  pikl <span class="ot">&lt;-</span> co <span class="sc">/</span> B</span>
+<span id="cb12-12"><a href="#cb12-12" tabindex="-1"></a>  <span class="cf">if</span> (<span class="sc">!</span><span class="fu">is.null</span>(sample_idx)) {</span>
+<span id="cb12-13"><a href="#cb12-13" tabindex="-1"></a>    pikl <span class="ot">&lt;-</span> pikl[sample_idx, sample_idx, drop <span class="ot">=</span> <span class="cn">FALSE</span>]</span>
+<span id="cb12-14"><a href="#cb12-14" tabindex="-1"></a>  }</span>
+<span id="cb12-15"><a href="#cb12-15" tabindex="-1"></a>  pikl</span>
+<span id="cb12-16"><a href="#cb12-16" tabindex="-1"></a>}</span></code></pre></div>
 <p>The <code>sample_idx</code> argument enables the
 <code>sampled_only = TRUE</code> path in
 <code>joint_inclusion_prob()</code>. When <code>sample_idx</code> is
@@ -978,7 +985,7 @@ across sessions, place the <code>register_method()</code> call in your
 </div>
 <div id="references" class="section level2 unnumbered">
 <h2 class="unnumbered">References</h2>
-<div id="refs" class="references csl-bib-body hanging-indent" entry-spacing="0">
+<div id="refs" class="references csl-bib-body hanging-indent">
 <div id="ref-brewer2003" class="csl-entry">
 Brewer, K. R. W., and M. E. Donadio. 2003. <span>“The High Entropy
 Variance of the <span>H</span>orvitz–<span>T</span>hompson
@@ -1007,7 +1014,7 @@ Statistics</em> 41 (2): 277–90. <a href="https://doi.org/10.1111/sjos.12016">h
 <div id="ref-hajek1964" class="csl-entry">
 Hájek, Jaroslav. 1964. <span>“Asymptotic Theory of Rejective Sampling
 with Varying Probabilities from a Finite Population.”</span> <em>The
-Annals of Mathematical Statistics</em> 35 (4): 1491–1523. <a href="https://doi.org/10.1214/aoms/1177700375">https://doi.org/10.1214/aoms/1177700375</a>.
+Annals of Mathematical Statistics</em> 35 (4): 1491–523. <a href="https://doi.org/10.1214/aoms/1177700375">https://doi.org/10.1214/aoms/1177700375</a>.
 </div>
 <div id="ref-tille1996" class="csl-entry">
 Tillé, Yves. 1996. <span>“Some Remarks on Unequal Probability Sampling
@@ -1015,8 +1022,8 @@ Designs Without Replacement.”</span> <em>Annales d’<span>É</span>conomie
 Et de Statistique</em>, no. 44: 177–89. <a href="https://doi.org/10.2307/20076043">https://doi.org/10.2307/20076043</a>.
 </div>
 <div id="ref-tille2006" class="csl-entry">
-———. 2006. <em>Sampling Algorithms</em>. Springer Series in Statistics.
-Springer. <a href="https://doi.org/10.1007/0-387-34240-0">https://doi.org/10.1007/0-387-34240-0</a>.
+Tillé, Yves. 2006. <em>Sampling Algorithms</em>. Springer Series in
+Statistics. Springer. <a href="https://doi.org/10.1007/0-387-34240-0">https://doi.org/10.1007/0-387-34240-0</a>.
 </div>
 </div>
 </div>

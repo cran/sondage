@@ -28,7 +28,7 @@ For the full object contract and field definitions, see `?sondage_sample`.
 
 For without-replacement designs, the stored `pik` vector is the design-defining target inclusion probability vector. For methods with exact first-order guarantees, this equals the true first-order inclusion probabilities. For order-sampling methods such as `sps` and `pareto`, the stored vector remains the target `pik`, while the true finite-population first-order inclusion probabilities are only approximately equal to that target.
 
-The five entry-point functions are organised by two dimensions, plus a dedicated dispatcher for balanced sampling:
+The five entry-point functions are organized by two dimensions, plus a dedicated dispatcher for balanced sampling:
 
 |                | Without replacement | With replacement |
 |----------------|---------------------|------------------|
@@ -85,7 +85,7 @@ s_wr$hits  # length-N vector of selection counts
 
 ## Unequal probability sampling
 
-When units have different sizes (employees, revenue, area, ...), probability-proportional-to-size (PPS) designs give larger units higher selection probabilities, which reduces the variance of Horvitz--Thompson estimators [@horvitz1952].
+When units have different sizes (employees, revenue, area, ...), probability-proportional-to-size (PPS) designs give larger units higher selection probabilities, which reduces the variance of Horvitz-Thompson estimators [@horvitz1952].
 
 ### Computing design quantities
 
@@ -133,9 +133,17 @@ s_wr$hits  # realized selection counts
 
 The `"multinomial"` method draws each selection independently.
 
+The `"systematic_mr"` method is systematic PPS with minimum replacement. It walks the cumulated expected hits from one random start, in the order of the frame. A unit larger than the sampling interval is hit once per interval it spans, where `unequal_prob_wor(method = "systematic")` takes it once, with certainty. Here the last unit expects 1.875 hits, so it receives one or two:
+
+```{r}
+eh_big <- expected_hits(c(10, 20, 5, 40, 125), n)
+eh_big
+unequal_prob_wr(eh_big, method = "systematic_mr")$hits
+```
+
 ## Balanced sampling
 
-When auxiliary information is available at the design stage, balanced sampling ensures that Horvitz--Thompson estimates of auxiliary totals are (approximately) exact: $\sum_{k \in S} x_k / \pi_k \approx \sum_{k \in U} x_k$. This reduces variance for any study variable correlated with the balancing variables.
+When auxiliary information is available at the design stage, balanced sampling ensures that Horvitz-Thompson estimates of auxiliary totals are (approximately) exact: $\sum_{k \in S} x_k / \pi_k \approx \sum_{k \in U} x_k$. This reduces variance for any study variable correlated with the balancing variables.
 
 The `balanced_wor()` function implements the cube method [@deville2004]:
 
@@ -154,7 +162,7 @@ For ill-conditioned or collinear auxiliary variables, `condition_aux = TRUE` app
 
 ### Stratified balanced sampling
 
-When strata are known, the stratified cube method [@chauvet2009] preserves within-stratum sample sizes while balancing on auxiliary variables. Exact preservation requires `sum(pik)` within each stratum to be close to an integer; when this condition is not met, within-stratum and total sample sizes will vary around their targets and the design is treated as random-size (`fixed_size = FALSE`):
+When strata are known, the stratified cube method [@chauvet2009] preserves within-stratum sample sizes while balancing on auxiliary variables. Exact preservation requires `sum(pik)` within each stratum to be close to an integer. When this condition is not met, within-stratum and total sample sizes will vary around their targets and the design is treated as random-size (`fixed_size = FALSE`):
 
 ```{r}
 N <- 20
@@ -169,7 +177,7 @@ s_strat
 table(strata[s_strat$sample])
 ```
 
-Joint inclusion probabilities for the cube use the high-entropy approximation, since the cube produces a near-maximum-entropy design.
+Joint inclusion probabilities for the cube use the high-entropy approximation. It depends only on `pik`, so it ignores strata and balancing constraints, and it can give a positive probability to a pair that a stratified design excludes.
 
 ### Balanced sampling with inequalities
 
@@ -195,7 +203,7 @@ colSums(B[s_control$sample, , drop = FALSE])
 
 ### Spatially balanced sampling
 
-It's possible to select well-spread, spatially balanced samples using `lpm2` [local pivotal method 2, @grafstrom2012] and `scps` [spatially correlated poisson sampling, @grafstrom2012scps].
+It's possible to select well-spread, spatially balanced samples using `lpm2` [local pivotal method 2, @grafstrom2012] and `scps` [spatially correlated Poisson sampling, @grafstrom2012scps].
 
 
 ```{r}
@@ -218,6 +226,17 @@ s_scps$sample
 
 
 These built-in methods are spread-only: they do not accept `aux`, `strata`, or `bounds`. They preserve the supplied first-order inclusion probabilities, but intentionally produce low-entropy designs, so `joint_inclusion_prob()` and `sampling_cov()` are not available for them.
+
+With permanent random numbers, `scps` visits the units in row order and selects unit $k$ when $u_k$ falls below its current conditional probability [@bondesson2008; @grafstrom2018]. Two surveys drawn with `prn = u` and `prn = 1 - u` are then negatively coordinated. @matei2023 spread on a measure of response burden instead of coordinates, so that highly burdened units rarely enter the same sample, and rarely enter both.
+
+```{r}
+set.seed(42)
+burdened <- as.double(seq_len(16) %in% c(2, 7, 11))
+u <- runif(16)
+s1 <- balanced_wor(pik_spatial, spread = burdened, method = "scps", prn = u)
+s2 <- balanced_wor(pik_spatial, spread = burdened, method = "scps", prn = 1 - u)
+intersect(s1$sample, s2$sample)
+```
 
 ## Design queries
 
@@ -261,7 +280,7 @@ pikl_sub <- joint_inclusion_prob(s_large, sampled_only = TRUE)
 dim(pikl_sub)
 ```
 
-All methods compute the submatrix directly without allocating the N x N matrix, so arbitrarily large populations are supported. The `sampling_cov()` generic also accepts `sampled_only`:
+All methods compute the submatrix directly without allocating the N x N matrix, so sampled-only queries reach well beyond the population size that a full matrix allows. Memory and computing time still depend on the method, N and n, and the sampled output is limited to 10,000 units. The `sampling_cov()` generic also accepts `sampled_only`:
 
 ```{r}
 delta_sub <- sampling_cov(s_large, sampled_only = TRUE)
@@ -276,7 +295,7 @@ The `sampling_cov()` generic computes $\Delta_{ij} = \pi_{ij} - \pi_i \pi_j$ for
 sampling_cov(s)
 ```
 
-With `weighted = TRUE`, it returns the Sen--Yates--Grundy check quantities $1 - \pi_i \pi_j / \pi_{ij}$ [@sen1953; @yatesandgrundy1953]. For well-behaved WOR designs, these should be non-positive off-diagonal:
+With `weighted = TRUE`, it returns the Sen-Yates-Grundy check quantities $1 - \pi_i \pi_j / \pi_{ij}$ [@sen1953; @yatesandgrundy1953]. For well-behaved WOR designs, these should be non-positive off-diagonal:
 
 ```{r}
 sampling_cov(s, weighted = TRUE)
@@ -299,7 +318,7 @@ For fixed-size designs `$sample` is a matrix (`n x nrep`). For random-size desig
 
 ## Design properties and statistical guarantees
 
-The table below summarises what `sondage` computes for each method. Understanding these properties is essential for choosing the right variance estimator.
+The table below summarizes what `sondage` computes for each method. Understanding these properties is essential for choosing the right variance estimator.
 
 ```{r, echo = FALSE}
 props <- data.frame(
@@ -308,13 +327,13 @@ props <- data.frame(
     "SRS WR",
     "CPS", "Brewer", "Sampford", "Systematic PPS", "Poisson",
     "SPS", "Pareto",
-    "Chromy", "Multinomial",
+    "Chromy", "Multinomial", "Systematic PPS (MR)",
     "Cube", "LPM2", "SCPS"
   ),
   Type = c(
     rep("EP WOR", 3), "EP WR",
     rep("UP WOR", 7),
-    rep("UP WR", 2),
+    rep("UP WR", 3),
     rep("Balanced", 3)
   ),
   `Fixed n` = c(
@@ -322,7 +341,7 @@ props <- data.frame(
     "Yes",
     "Yes", "Yes", "Yes", "Yes", "No",
     "Yes", "Yes",
-    "Yes", "Yes",
+    "Yes", "Yes", "Yes",
     "Yes", "Yes", "Yes"
   ),
   `Exact design marginals?` = c(
@@ -330,7 +349,7 @@ props <- data.frame(
     "Yes",
     "Yes", "Yes", "Yes", "Yes", "Yes",
     "Target only*", "Target only*",
-    "Yes", "Yes",
+    "Yes", "Yes", "Yes",
     "Yes", "Yes", "Yes"
   ),
   `Joint probs` = c(
@@ -338,7 +357,7 @@ props <- data.frame(
     "Exact",
     "Exact", "HE approx", "Exact", "Exact (zeros)", "Exact",
     "HE approx", "HE approx",
-    "Simulated", "Exact",
+    "Simulated", "Exact", "Exact (zeros)",
     "HE approx", "Not available", "Not available"
   ),
   check.names = FALSE
@@ -346,10 +365,10 @@ props <- data.frame(
 knitr::kable(props, align = "llccl",
   caption = paste(
     "HE approx = high-entropy approximation (Brewer & Donadio, 2003).",
-    "For WOR methods, design marginals are first-order inclusion probabilities pi_k;",
-    "for WR methods, they are expected hits E(N_k).",
-    "Target only* = the stored design-defining pik is the target vector;",
-    "for sps and pareto the true finite-population first-order probabilities",
+    "For WOR methods, design marginals are first-order inclusion probabilities pi_k,",
+    "and for WR methods, they are expected hits E(N_k).",
+    "Target only* = the stored design-defining pik is the target vector.",
+    "For sps and pareto the true finite-population first-order probabilities",
     "are only approximately equal to that target, with the discrepancy",
     "vanishing asymptotically.",
     "Simulated = Monte Carlo via nsim parameter."
@@ -359,20 +378,36 @@ knitr::kable(props, align = "llccl",
 
 ### Notes on specific methods
 
-**Equal-probability systematic sampling.** In `sondage`, `joint_inclusion_prob()` returns exact joint inclusion probabilities computed via C code, using the same algorithm as systematic PPS with uniform $\pi_k = n/N$. Some $\pi_{ij}$ are structurally zero (pairs of units that can never co-occur in the same systematic sample), so the SYG estimator is generally inapplicable. Consider replication or successive-differences variance estimators for systematic designs.
+#### Equal-probability systematic sampling
 
-**SPS and Pareto (order sampling).** Both are implemented via @rosen1997's order sampling framework. SPS uses ranking key $\xi_k = u_k / \pi_k$ [equivalent to @ohlsson1998's sequential threshold adjustment]; Pareto uses $\xi_k = [u_k/(1-u_k)] / [\pi_k/(1-\pi_k)]$. The $n$ units with the smallest $\xi_k$ are selected. Design objects store the supplied `pik` as the design-defining target vector, and `inclusion_prob(s)` returns that stored target. The true finite-population first-order inclusion probabilities are approximately (not exactly) equal to the target $\pi_k$ for finite populations; the discrepancy vanishes as $N$ grows. Both support permanent random numbers (PRN) for sample coordination.
+In `sondage`, `joint_inclusion_prob()` returns exact joint inclusion probabilities computed via C code, using the same algorithm as systematic PPS with uniform $\pi_k = n/N$. Some $\pi_{ij}$ are structurally zero (pairs of units that can never co-occur in the same systematic sample), so the SYG estimator is generally inapplicable. Consider replication or successive-differences variance estimators for systematic designs.
 
-**Systematic PPS.** Joint inclusion probabilities are exact (computed via C code) but some $\pi_{ij}$ are structurally zero e.g for pairs of units that
+#### SPS and Pareto (order sampling)
+
+Both are implemented via @rosen1997's order sampling framework. SPS uses ranking key $\xi_k = u_k / \pi_k$ [equivalent to @ohlsson1998's sequential threshold adjustment], and Pareto uses $\xi_k = [u_k/(1-u_k)] / [\pi_k/(1-\pi_k)]$. The $n$ units with the smallest $\xi_k$ are selected. Design objects store the supplied `pik` as the design-defining target vector, and `inclusion_prob(s)` returns that stored target. The true finite-population first-order inclusion probabilities are approximately (not exactly) equal to the target $\pi_k$ for finite populations, and the discrepancy vanishes as $N$ grows. Both support permanent random numbers (PRN) for sample coordination.
+
+#### Systematic PPS
+
+Joint inclusion probabilities are exact (computed via C code), but some $\pi_{ij}$ are structurally zero, for pairs of units that
 can never co-occur. `sampling_cov(s, weighted = TRUE)` returns `NA` for those entries and issues a warning, because the SYG estimator is undefined
-for such pairs. Consider successive-differences, Hartley--Rao, or replication methods instead.
+for such pairs. Consider successive-differences, Hartley-Rao, or replication methods instead.
 
-**Chromy.** Pairwise expectations $E(n_i n_j)$ are estimated by Monte Carlo
+#### Chromy
+
+Pairwise expectations $E(n_i n_j)$ are estimated by Monte Carlo
 simulation in `joint_expected_hits()` (controlled by `nsim`, default 10 000).
 
-**Cube (balanced sampling).** The cube method [@deville2004] produces near-maximum-entropy samples, so `joint_inclusion_prob()` uses the high-entropy approximation. The stratified variant [@chauvet2009] preserves exact within-stratum sample sizes. Order auxiliary variables by importance (most important first) since the landing phase relaxes constraints from last to first. Inequality bounds provide controlled selection, but tight bounds can make the high-entropy approximation less accurate.
+#### Systematic PPS with minimum replacement
 
-**LPM2 and SCPS (spatially balanced sampling).** Both methods preserve exact first-order inclusion probabilities and spread the sample using the variables supplied in `spread`. Their low-entropy spatial dependence is deliberate; no joint inclusion probability or sampling covariance approximation is exposed. Use a local-neighbourhood variance estimator instead.
+Each unit receives the whole part of its expected hits or one more, and the hits sum to $n$. Pairwise expectations from `joint_expected_hits()` are exact. A unit with at least one expected hit is selected in every sample, so its pairs with every unit of positive expected hits are positive. Two units below one expected hit can still be a structural zero, as in systematic PPS, and `sampling_cov(s, weighted = TRUE)` returns `NA` for those pairs. In a two-stage design, a primary unit hit twice needs two independent second-stage samples, and the with-replacement variance approximation then treats each hit as a separate primary unit.
+
+#### Cube (balanced sampling)
+
+For the cube method [@deville2004], `joint_inclusion_prob()` uses the high-entropy approximation. It depends only on `pik`, so it does not reflect strata or balancing constraints. A stratified design can have pairs that never occur together, and the approximation reports a positive probability for them. For a stratified or strongly constrained design, prefer Monte Carlo estimates of the joint probabilities or a variance method suited to balanced sampling. The stratified variant [@chauvet2009] preserves exact within-stratum sample sizes. Order auxiliary variables by importance (most important first) since the landing phase relaxes constraints from last to first. Inequality bounds provide controlled selection, but tight bounds can make the high-entropy approximation less accurate.
+
+#### LPM2 and SCPS (spatially balanced sampling)
+
+Both methods preserve exact first-order inclusion probabilities and spread the sample using the variables supplied in `spread`. Their low-entropy spatial dependence is deliberate, so no joint inclusion probability or sampling covariance approximation is exposed. Use a local-neighborhood variance estimator instead.
 
 ### Choosing a method
 
@@ -380,18 +415,19 @@ simulation in `joint_expected_hits()` (controlled by `nsim`, default 10 000).
 - **Brewer**: Use when you want exact first-order inclusion probabilities with lower computational cost than `cps`, and can work with approximate second-order quantities in `sondage`.
 - **Sampford**: Use for fixed-size PPS with exact first- and second-order inclusion probabilities and fast typical draws.
 - **Systematic**: Use when very fast sampling and ordering or implicit stratification are central, and structural zeros in some joint inclusion probabilities are acceptable (low-entropy).
+- **Systematic PPS with minimum replacement**: Use when a large unit must be able to receive several hits, for instance to keep a fixed second-stage take per hit.
 - **Poisson**: Use when a random sample size is acceptable and independent selection is desirable.
 - **SPS / Pareto**: Use as fast high-entropy order-sampling alternatives when approximate first- and second-order quantities are acceptable.
 - **Cube**: Use when balancing on auxiliary variables is important.
-- **LPM2 / SCPS**: Use when spatial spread is the priority and a local-neighbourhood variance strategy is available.
+- **LPM2 / SCPS**: Use when spatial spread is the priority and a local-neighborhood variance strategy is available.
 
 ### Choosing a variance strategy
 
-- **SYG with exact $\pi_{ij}$**: CPS, Sampford and SRS WOR provide exact joint probabilities, so the Sen--Yates--Grundy variance estimator [@sen1953; @yatesandgrundy1953] is unbiased.
-- **SYG with approximate $\pi_{ij}$**: For Brewer, SPS, Pareto, and cube, joint probabilities use the high-entropy approximation [@brewer2003, eq. 18]. This guarantees symmetry, non-negativity, and $\pi_{ij} \le \min(\pi_i, \pi_j)$, but does *not* satisfy the fixed-size marginal identity $\sum_{j \neq i}\pi_{ij} = (n-1)\pi_i$ exactly. The marginal defect is typically small but can be non-trivial for highly skewed $\pi_k$ vectors when $n$ is small (e.g., $n = 2$); a warning is issued when it exceeds 5% of $n$. For `sps` and `pareto`, this approximation is built from the stored target `pik` vector rather than the unknown exact finite-population first-order probabilities. Use `method = "cps"` when exact second-order structure is required.
+- **SYG with exact $\pi_{ij}$**: CPS, Sampford and SRS WOR provide exact joint probabilities. For these fixed-size designs, the Sen-Yates-Grundy variance estimator [@sen1953; @yatesandgrundy1953] is unbiased when every joint inclusion probability is positive, which excludes `n = 1`.
+- **SYG with approximate $\pi_{ij}$**: For Brewer, SPS, Pareto, and cube, joint probabilities use the high-entropy approximation [@brewer2003, eq. 18]. This guarantees symmetry, non-negativity, and $\pi_{ij} \le \min(\pi_i, \pi_j)$, but does *not* satisfy the fixed-size marginal identity $\sum_{j \neq i}\pi_{ij} = (n-1)\pi_i$ exactly. The marginal defect is typically small but can be non-trivial for highly skewed $\pi_k$ vectors when $n$ is small (e.g., $n = 2$). A warning is issued when it exceeds 5% of $n$. For `sps` and `pareto`, this approximation is built from the stored target `pik` vector rather than the unknown exact finite-population first-order probabilities. For the cube, it also ignores strata and balancing constraints, as noted above. Use `method = "cps"` when exact second-order structure is required.
 - **Independent designs** (Poisson, Bernoulli): The covariance $\Delta_{ij} = 0$ for $i \neq j$, so the variance simplifies to $\text{Var}(\hat{Y}_{HT}) = \sum_i (1 - \pi_i)\, y_i^2 / \pi_i$.
-- **Systematic designs with $\pi_{ij} = 0$**: The SYG estimator is undefined. Use successive-differences, Hartley--Rao approximations, or replication methods.
-- **With-replacement designs** (Chromy, multinomial): Use the @hansen1943 estimator, or the generalised Horvitz--Thompson framework of @chromy2009 which unifies WOR and WR variance estimation via `sampling_cov()`.
+- **Systematic designs with $\pi_{ij} = 0$**: The SYG estimator is undefined. Use successive-differences, Hartley-Rao approximations, or replication methods.
+- **With-replacement designs** (Chromy, multinomial, systematic PPS with minimum replacement): Use the @hansen1943 estimator, which is design-unbiased for multinomial draws and an approximation, often conservative, for the two minimum-replacement methods, or the generalized Horvitz-Thompson framework of @chromy2009 which unifies WOR and WR variance estimation via `sampling_cov()`.
 
 ## Extending sondage
 

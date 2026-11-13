@@ -11,7 +11,7 @@
 #' their associated generics.
 #'
 #' Registrations last for the current R session. Registering an existing
-#' custom method name is an error; call [unregister_method()] first when
+#' custom method name is an error. Call [unregister_method()] first when
 #' deliberately replacing a method.
 #'
 #' @param name A unique method name (character string). Must not
@@ -35,10 +35,8 @@
 #'   default) means undeclared: consumers fall back on inferring a
 #'   treatment from `type` and `fixed_size`.
 #' @param supports_prn Does this method support permanent random
-#'   numbers for sample coordination? Set to `TRUE` or `FALSE` for
-#'   `"wor"` and `"wr"` methods. `NULL` (the default) resolves to
-#'   `FALSE`. Leave `NULL` for `"balanced"` methods; [balanced_wor()]
-#'   has no `prn` argument.
+#'   numbers for sample coordination? `TRUE` or `FALSE`, for every
+#'   method type. `NULL` (the default) resolves to `FALSE`.
 #' @param supports_aux Does this method use auxiliary balancing
 #'   variables? Set to `TRUE` or `FALSE` for `type = "balanced"`.
 #'   `NULL` (the default) resolves to `TRUE` for balanced methods and
@@ -57,7 +55,9 @@
 #'   `FALSE` for `type = "balanced"`. `NULL` (the default) resolves to
 #'   `FALSE`. When `FALSE`, passing `spread` to [balanced_wor()] with
 #'   this method is an error, and `sample_fn` does not need a `spread`
-#'   argument. Leave `NULL` for `"wor"` and `"wr"` methods.
+#'   argument. When `TRUE`, the method may use `spread` but is still called
+#'   without it, so a `sample_fn` that cannot work without `spread` should
+#'   check for it. Leave `NULL` for `"wor"` and `"wr"` methods.
 #' @param probabilities Where the method sits in the first-order
 #'   probability taxonomy, for downstream packages that weight or
 #'   record per-unit selection probabilities:
@@ -85,7 +85,7 @@
 #'   weights. Sampling through sondage itself is unaffected: the
 #'   declaration describes the method, it never disables it. Like
 #'   `variance_family`, the declaration is an assertion by the method
-#'   author that sondage cannot verify; the package vignette shows
+#'   author that sondage cannot verify. The package vignette shows
 #'   how to check a first-order contract by simulation.
 #'
 #' @section Contracts:
@@ -93,7 +93,9 @@
 #' **`sample_fn(pik, n = NULL, prn = NULL, ...)`** (type `"wor"`)
 #' \describe{
 #'   \item{`pik`}{Inclusion probabilities, numeric vector of length N.}
-#'   \item{`n`}{Target sample size, equal to `round(sum(pik))`.}
+#'   \item{`n`}{Sample size: `round(sum(pik))` for a fixed-size method,
+#'     and the expected size `sum(pik)`, a double, for a method registered
+#'     with `fixed_size = FALSE`.}
 #'   \item{`prn`}{Permanent random numbers (numeric vector length N,
 #'     values in (0,1)), or `NULL`. Supplying `prn` is an error when the
 #'     method is registered with `supports_prn = FALSE`, and `sample_fn`
@@ -125,7 +127,7 @@
 #'     otherwise `sum(pik)`).}
 #'   \item{`aux`}{Auxiliary balancing matrix (N x p, double), or
 #'     `NULL`. Passed through as supplied to [balanced_wor()] after
-#'     validation; the sample-size constraint is \strong{not}
+#'     validation. The sample-size constraint is \strong{not}
 #'     prepended, so add it yourself if your algorithm needs it
 #'     (e.g. `cbind(pik, aux)`). Methods registered with
 #'     `supports_aux = FALSE` always receive `aux = NULL`.}
@@ -138,11 +140,15 @@
 #'     a numeric matrix (N x d, double) of spatial coordinates (or
 #'     other spreading variables). Declare it as `spread = NULL` in
 #'     your function signature.}
+#'   \item{`prn`}{Only when registered with `supports_prn = TRUE` and
+#'     the caller supplies `prn`: permanent random numbers (numeric
+#'     vector length N, values in (0,1)). Declare it as `prn = NULL` in
+#'     your function signature.}
 #'   \item{Returns}{Integer vector of distinct selected unit indices
 #'     (1-based). The dispatcher validates the returned indices.}
 #' }
 #'
-#' **`joint_fn(pik, sample_idx = NULL, ...)`** (optional; types `"wor"`
+#' **`joint_fn(pik, sample_idx = NULL, ...)`** (optional, types `"wor"`
 #' and `"balanced"`)
 #' \describe{
 #'   \item{`pik`}{Inclusion probabilities, numeric vector of length N.}
@@ -157,7 +163,7 @@
 #'     symmetric numeric values.}
 #' }
 #'
-#' **`joint_fn(hits, sample_idx = NULL, ...)`** (optional; type `"wr"`)
+#' **`joint_fn(hits, sample_idx = NULL, ...)`** (optional, type `"wr"`)
 #' \describe{
 #'   \item{`hits`}{Expected hits, numeric vector of length N, renormalized
 #'     to sum exactly to the integer sample size `n`.}
@@ -195,9 +201,12 @@
 #'     Requires `type = "wor"` and `fixed_size = FALSE`.}
 #'   \item{`"wr"`}{With-replacement (or minimum-replacement)
 #'     selection. Hansen-Hurwitz variance, no finite population
-#'     correction. Requires `type = "wr"`.}
-#'   \item{`"unsupported"`}{No linearization treatment is valid;
-#'     consumers should refuse to linearize and point to replicate
+#'     correction. Requires `type = "wr"`. It is design-unbiased for
+#'     independent draws such as `"multinomial"`, and an approximation,
+#'     often conservative, for minimum-replacement methods such as
+#'     `"chromy"` and `"systematic_mr"`, whose hits are dependent.}
+#'   \item{`"unsupported"`}{No linearization treatment is valid.
+#'     Consumers should refuse to linearize and point to replicate
 #'     methods instead. The correct declaration for correlated
 #'     random-size schemes. Always allowed.}
 #' }
@@ -207,7 +216,7 @@
 #' `"poisson"` can never hold for them.
 #'
 #' The declaration is an assertion by the method author, not
-#' something sondage can verify; `"poisson"` in particular asserts
+#' something sondage can verify. `"poisson"` in particular asserts
 #' that units are selected independently, and a wrong declaration
 #' produces silently wrong variance estimates for every user of the
 #' method. The package vignette
@@ -216,8 +225,9 @@
 #'
 #' @return Invisible `NULL`, called for its side effect.
 #'
-#' @seealso [registered_methods()], [method_spec()],
-#'   [unequal_prob_wor()], [unequal_prob_wr()], [balanced_wor()]
+#' @seealso [registered_methods()], [is_registered_method()],
+#'   [unregister_method()], [method_spec()], [unequal_prob_wor()],
+#'   [unequal_prob_wr()], [balanced_wor()]
 #'
 #' @examples
 #' # Register a toy random sampler. Successive sampling with
@@ -340,13 +350,6 @@ register_method <- function(
   if (type == "wr" && !fixed_size) {
     stop(
       "type = \"wr\" methods require fixed_size = TRUE",
-      call. = FALSE
-    )
-  }
-  if (type == "balanced" && !is.null(supports_prn)) {
-    stop(
-      "'supports_prn' only applies to type = \"wor\" or \"wr\"; ",
-      "balanced_wor() has no 'prn' argument",
       call. = FALSE
     )
   }
@@ -515,6 +518,23 @@ unregister_method <- function(name) {
   }
 }
 
+#' Hint appended to a rejected sample that looks like an inclusion indicator.
+#'
+#' Called only once a sample has failed validation, so valid draws pay nothing.
+#'
+#' @noRd
+.indicator_hint <- function(sample, N) {
+  is_indicator <- (is.numeric(sample) || is.logical(sample)) &&
+    length(sample) == N &&
+    !anyNA(sample) &&
+    all(sample == 0 | sample == 1)
+  if (is_indicator) {
+    " (sample_fn may have returned a 0/1 indicator, which() gives the indices)"
+  } else {
+    ""
+  }
+}
+
 #' @noRd
 .check_registered_sample <- function(
   sample,
@@ -526,7 +546,12 @@ unregister_method <- function(name) {
 ) {
   prefix <- sprintf("registered method '%s' returned", method)
   if (!is.numeric(sample) || !is.null(dim(sample))) {
-    stop(prefix, " a sample that is not a numeric vector", call. = FALSE)
+    stop(
+      prefix,
+      " a sample that is not a numeric vector",
+      .indicator_hint(sample, N),
+      call. = FALSE
+    )
   }
   if (any(!is.finite(sample))) {
     stop(prefix, " non-finite sample indices", call. = FALSE)
@@ -538,6 +563,7 @@ unregister_method <- function(name) {
     stop(
       prefix,
       sprintf(" sample indices outside 1:%d", N),
+      .indicator_hint(sample, N),
       call. = FALSE
     )
   }
@@ -554,8 +580,12 @@ unregister_method <- function(name) {
   as.integer(sample)
 }
 
+# The registered dispatchers and .registered_joint_or_stop() receive the
+# caller's `...` as the list `dots`. With `...` as a formal, a name such as `m`
+# or `q` would match one of their own arguments and shift the positional ones.
+
 #' @noRd
-.dispatch_registered_wor <- function(pik, method, nrep, prn, ...) {
+.dispatch_registered_wor <- function(pik, method, nrep, prn, dots = list()) {
   reg <- .method_registry[[method]]
   .check_registered_type(reg, "wor")
   nrep <- .check_nrep_prn(
@@ -568,10 +598,11 @@ unregister_method <- function(name) {
     .check_prn(prn, N)
   }
   n <- if (reg$fixed_size) as.integer(round(sum(pik))) else sum(pik)
+  sample_args <- c(list(pik, n = n, prn = prn), dots)
 
   draw <- function() {
     .check_registered_sample(
-      reg$sample_fn(pik, n = n, prn = prn, ...),
+      do.call(reg$sample_fn, sample_args),
       N,
       n,
       method,
@@ -597,24 +628,24 @@ unregister_method <- function(name) {
 }
 
 #' @noRd
-.dispatch_registered_wr <- function(hits, method, nrep, prn, ...) {
+.dispatch_registered_wr <- function(hits, method, nrep, prn, dots = list()) {
   reg <- .method_registry[[method]]
   .check_registered_type(reg, "wr")
   nrep <- .check_nrep_prn(
     nrep, prn, method, supports_prn = reg$supports_prn
   )
 
-  .check_hits(hits)
-  n <- .check_number(sum(hits), "sum(hits)", integer = TRUE)
+  n <- .check_hits(hits)
   N <- length(hits)
   if (!is.null(prn)) {
     .check_prn(prn, N)
   }
   prob <- hits / sum(hits)
+  sample_args <- c(list(hits, n = n, prn = prn), dots)
 
   draw <- function() {
     .check_registered_sample(
-      reg$sample_fn(hits, n = n, prn = prn, ...),
+      do.call(reg$sample_fn, sample_args),
       N,
       n,
       method,
@@ -665,14 +696,20 @@ unregister_method <- function(name) {
   spread,
   method,
   nrep,
-  ...
+  prn = NULL,
+  dots = list()
 ) {
   reg <- .method_registry[[method]]
   .check_registered_type(reg, "balanced")
-  nrep <- .check_nrep_prn(nrep)
+  nrep <- .check_nrep_prn(
+    nrep, prn, method, supports_prn = reg$supports_prn
+  )
 
   .check_pik(pik, fixed_size = reg$fixed_size)
   N <- length(pik)
+  if (!is.null(prn)) {
+    .check_prn(prn, N)
+  }
 
   if (!is.null(aux)) {
     if (!reg$supports_aux) {
@@ -728,7 +765,10 @@ unregister_method <- function(name) {
     }
   }
 
-  n <- if (fixed_size) as.integer(round(sum(pik))) else sum(pik)
+  # Keyed on the registration, not on the demoted fixed_size. .check_pik()
+  # accepted a floating-point residue in sum(pik), and seq_len(n) or
+  # sample.int(N, n) would truncate 2.9999999999999991 to 2.
+  n <- if (reg$fixed_size) as.integer(round(sum(pik))) else sum(pik)
 
   # Optional design inputs are passed only when supplied, so minimal
   # sample_fn signatures (pik, n, aux, ...) keep working.
@@ -739,7 +779,10 @@ unregister_method <- function(name) {
   if (!is.null(spread)) {
     sample_args$spread <- spread
   }
-  sample_args <- c(sample_args, list(...))
+  if (!is.null(prn)) {
+    sample_args$prn <- prn
+  }
+  sample_args <- c(sample_args, dots)
 
   draw <- function() {
     .check_registered_sample(
@@ -782,7 +825,7 @@ unregister_method <- function(name) {
   sample_idx,
   quantity,
   generic_args,
-  ...
+  dots = list()
 ) {
   if (!is_registered_method(method)) {
     .stop_no_joint(method, quantity)
@@ -791,11 +834,17 @@ unregister_method <- function(name) {
   if (is.null(reg$joint_fn)) {
     .stop_no_joint(method, quantity)
   }
+  if ("sample_idx" %in% names(dots)) {
+    stop(
+      "'sample_idx' cannot be passed in '...'; use sampled_only = TRUE instead",
+      call. = FALSE
+    )
+  }
   declared <- names(formals(reg$joint_fn))
   generic_args <- generic_args[names(generic_args) %in% declared]
   joint <- do.call(
     reg$joint_fn,
-    c(list(marginals, sample_idx = sample_idx), list(...), generic_args)
+    c(list(marginals, sample_idx = sample_idx), dots, generic_args)
   )
   expected <- if (is.null(sample_idx)) length(marginals) else length(sample_idx)
   prefix <- sprintf("registered method '%s' returned", method)

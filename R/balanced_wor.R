@@ -6,8 +6,8 @@
 #' 2012) or spatially correlated Poisson sampling
 #' (\enc{Grafström}{Grafstrom}, 2012).
 #' A balanced sample satisfies (approximately) the balancing equations
-#' \eqn{\sum_{k \in S} x_k / \pi_k \approx \sum_{k \in U} x_k} for each
-#' auxiliary variable \eqn{x}; a well-spread sample selects units that
+#' \eqn{\sum_{k \in S} x_k / \pi_k \approx \sum_{k \in U} x_k}{sum_S x_k / pi_k ~ sum_U x_k} for each
+#' auxiliary variable \eqn{x}. A well-spread sample selects units that
 #' are far apart in the space spanned by the spreading variables.
 #'
 #' @param pik A numeric vector of inclusion probabilities (length N).
@@ -30,7 +30,7 @@
 #'   coordinates (or other spreading variables) for well-spread,
 #'   spatially balanced sampling. Required by the built-in `"lpm2"`
 #'   and `"scps"` methods, and supported by methods registered via
-#'   [register_method()] with `supports_spread = TRUE`; the built-in
+#'   [register_method()] with `supports_spread = TRUE`. The built-in
 #'   `"cube"` method does not use it and will error. A non-matrix
 #'   vector is treated as a single spreading variable.
 #' @param bounds An optional list with elements `B`, `lower`, and
@@ -38,36 +38,45 @@
 #'   sample (Tripet & \enc{Tillé}{Tille}, 2026): `B` is a numeric
 #'   matrix (N x q) whose columns are constraint variables, and the
 #'   sample `s` is drawn so that
-#'   \eqn{lower_j \le \sum_{k \in s} B_{kj} \le upper_j} for every
+#'   \eqn{lower_j \le \sum_{k \in s} B_{kj} \le upper_j}{lower_j <= sum_s B_kj <= upper_j} for every
 #'   constraint `j`. `-Inf` / `Inf` entries make a constraint
-#'   one-sided; `lower[j] == upper[j]` enforces an exact equality.
+#'   one-sided, and `lower[j] == upper[j]` enforces an exact equality.
 #'   The starting probabilities must be feasible:
 #'   `lower <= colSums(B * pik) <= upper`. Only supported by the
 #'   built-in `"cube"` method. See **Inequality constraints** below.
 #' @param method The sampling method. `"cube"` (the default) balances
-#'   on `aux`; `"lpm2"` (local pivotal method 2) and `"scps"`
-#'   (spatially correlated Poisson sampling) spread on `spread`; or the
-#'   name of a balanced method added via [register_method()].
+#'   on `aux`. `"lpm2"` (local pivotal method 2) and `"scps"`
+#'   (spatially correlated Poisson sampling) spread on `spread`. The
+#'   name of a balanced method added via [register_method()] is also
+#'   accepted.
 #' @param nrep Number of replicate samples (default 1). When `nrep > 1`,
 #'   `$sample` holds a matrix (n x nrep) for fixed-size designs, or a
 #'   list of integer vectors when within-stratum sizes are not exact.
+#' @param prn Optional vector of permanent random numbers (length N,
+#'   values in the open interval (0, 1)) for sample coordination.
+#'   Supported by `"scps"` and by methods registered with
+#'   `supports_prn = TRUE`. With `"scps"`, the sample is then a function
+#'   of `pik`, `spread`, `prn` and the row order alone. See **Sample
+#'   coordination** below. Cannot be combined with `nrep > 1`.
 #' @param ... Additional arguments passed to methods:
 #'   \describe{
 #'     \item{`eps`}{Boundary tolerance (default `1e-10`): decides when
 #'       an updated \emph{working} probability has numerically reached
 #'       0 or 1 (during the cube flight phase, or during the pivotal
-#'       steps of `"lpm2"` or `"scps"`). It never reclassifies the input;
-#'       supplied
-#'       `pik` inside `(0, eps]` or `[1 - eps, 1)` are rejected. Only
+#'       steps of `"lpm2"` or `"scps"`). It never reclassifies the input.
+#'       Supplied `pik` inside `(0, eps]` or `[1 - eps, 1)` are rejected. Only
 #'       `pik` of exactly 0 or exactly 1 enter the algorithm as
 #'       already-resolved units.}
-#'     \item{`condition_aux`}{Logical; if `TRUE`, pre-conditions `aux` by
-#'       weighted centering/scaling and QR-pivot rank pruning to improve
-#'       numerical stability with ill-conditioned or collinear auxiliary
-#'       variables (default `FALSE`).}
+#'     \item{`condition_aux`}{Logical. If `TRUE`, pre-conditions `aux` to
+#'       improve numerical stability with ill-conditioned or collinear
+#'       auxiliary variables (default `FALSE`). Each column is centered and
+#'       scaled in the space the cube balances, `aux / pik`, so that the
+#'       balancing equations are unchanged, and columns that depend on
+#'       earlier ones or on the sample size constraint are dropped. The
+#'       other columns keep their order.}
 #'     \item{`qr_tol`}{Tolerance for QR rank detection when
-#'       `condition_aux = TRUE`; must be one finite, non-negative number
-#'       (default `sqrt(.Machine$double.eps)`).}
+#'       `condition_aux = TRUE`. It must be one finite, non-negative
+#'       number (default `sqrt(.Machine$double.eps)`).}
 #'   }
 #'
 #' @details
@@ -88,8 +97,15 @@
 #' constraints are also placed first.
 #'
 #' Joint inclusion probabilities are approximated via the high-entropy
-#' approximation (Brewer & Donadio, 2003), which is appropriate since
-#' the cube produces a near-maximum-entropy design.
+#' approximation (Brewer & Donadio, 2003). It uses only `pik`, so it ignores
+#' `aux`, `strata`, and `bounds`, and it returns the same matrix as for an
+#' unconstrained design. It can give a positive probability to a pair the
+#' design excludes. For example, with strata of two units and one selection
+#' in each, two units of the same stratum never occur together. The
+#' marginal-defect warning of [joint_inclusion_prob()] does not detect this.
+#' For a stratified or strongly constrained design, prefer Monte Carlo
+#' estimates of the joint probabilities or a variance method suited to
+#' balanced sampling.
 #'
 #' @section Inequality constraints:
 #'
@@ -100,8 +116,8 @@
 #' inclusion probabilities are respected exactly (`E(s) = pik`),
 #' unlike rejective procedures.
 #'
-#' `B` applies to the realized sample directly (counts / raw sums);
-#' it is \strong{not} divided by `pik`. To bound a Horvitz-Thompson
+#' `B` applies to the realized sample directly (counts or raw sums),
+#' so it is \strong{not} divided by `pik`. To bound a Horvitz-Thompson
 #' estimator, pass `x / pik` as the constraint column.
 #'
 #' One application is controlled selection with bounding
@@ -115,13 +131,13 @@
 #' some three-way controlled rounding problems, or continuous-valued
 #' constraints that end the flight phase tight against a boundary,
 #' bounds that provably block the landing phase are relaxed one at a
-#' time, with a warning; `E(s) = pik` still holds. In other words,
+#' time, with a warning, and `E(s) = pik` still holds. In other words,
 #' the bounds are guaranteed whenever no relaxation warning is
 #' raised.
 #'
 #' The high-entropy approximation used by [joint_inclusion_prob()] is
 #' less accurate under tight bounds, which distort the design away
-#' from maximum entropy; Tripet & \enc{Tillé}{Tille} (2026) recommend
+#' from maximum entropy. Tripet & \enc{Tillé}{Tille} (2026) recommend
 #' Monte Carlo estimation of joint inclusion probabilities in that
 #' case.
 #'
@@ -130,17 +146,17 @@
 #' `method = "lpm2"` implements the local pivotal method 2 of
 #' \enc{Grafström}{Grafstrom}, \enc{Lundström}{Lundstrom} & Schelin
 #' (2012). Repeatedly, a randomly chosen undecided unit and its
-#' nearest undecided neighbour in the `spread` space compete in a
+#' nearest undecided neighbor in the `spread` space compete in a
 #' pivotal step (Deville & \enc{Tillé}{Tille}, 1998) that resolves at
 #' least one of them to 0 or 1 while preserving the inclusion
 #' probabilities exactly (`E(s) = pik`). Nearby units thereby tend to
 #' exclude each other, spreading the sample over the population.
-#' Nearest-neighbour distance ties (common on gridded coordinates)
+#' Nearest-neighbor distance ties (common on gridded coordinates)
 #' are broken uniformly at random.
 #'
 #' Spreading variables should be on comparable scales, since
-#' nearness is plain Euclidean distance in the `spread` columns;
-#' rescale them (e.g. with [scale()]) when they are not. `"lpm2"` and
+#' nearness is plain Euclidean distance in the `spread` columns.
+#' Rescale them (e.g. with [scale()]) when they are not. `"lpm2"` and
 #' `"scps"` use `spread` only: they do not accept `aux`, `strata`, or
 #' `bounds`. To exactly balance covariate totals \emph{and} spread
 #' spatially, register a method that supports both `aux` and `spread`
@@ -156,29 +172,64 @@
 #' bounds that keep every working probability in \eqn{[0, 1]}.
 #' Equal-distance
 #' units share weight as evenly as their bounds allow. Random selection of
-#' the step unit avoids dependence on input row order.
+#' the step unit avoids dependence on input row order. With `prn`, units
+#' are visited in row order instead (see **Sample coordination** below).
 #'
 #' Both spatial methods deliberately drive joint inclusion probabilities of
 #' nearby units toward zero, so the design is \emph{not} high
 #' entropy and no joint-probability approximation is provided:
 #' [joint_inclusion_prob()] errors for these designs. Variance for
-#' well-spread samples is usually estimated with local-neighbourhood
+#' well-spread samples is usually estimated with local-neighborhood
 #' estimators (e.g. \enc{Grafström}{Grafstrom} & Schelin, 2014).
 #'
 #' Both methods are \emph{spread-only}: neither exactly balances the totals
-#' of `aux`. They are dispatched by `balanced_wor()` because “spatially
-#' balanced sampling” is the standard name for well-spread fixed-size
+#' of `aux`. They are dispatched by `balanced_wor()` because "spatially
+#' balanced sampling" is the standard name for well-spread fixed-size
 #' designs, and because the same interface accommodates local-cube methods
 #' that combine exact balancing with spread. Capability metadata keeps the
 #' distinction explicit: both report `supports_aux = FALSE` and
 #' `supports_spread = TRUE` through [method_spec()].
 #'
-#' LPM2 costs O(N^2 * d) time per draw. SCPS uses weighted quickselect to
+#' LPM2 finds nearest neighbors with a k-d tree (Friedman et al., 1977) when `spread` has at most
+#' eight columns, so a draw costs about O(N log N) time. Many units at
+#' the same distance, as with duplicated points, make the tree visit all of
+#' them, and a draw then approaches O(N^2). With more columns
+#' a tree prunes too little and LPM2 scans the undecided units instead, at
+#' O(N^2 * d) per draw. SCPS uses weighted quickselect to
 #' find the distance at which its maximal weights sum to one, avoiding a
-#' full sort of the remaining units at each step. Its expected cost is also
+#' full sort of the remaining units at each step. Its expected cost is
 #' O(N^2 * d). Both implementations use O(N) workspace and store no
-#' distance matrix; SCPS sorts only equal-distance cutoff groups to share
-#' their weight fairly.
+#' distance matrix. Units at the cutoff distance share their weight
+#' equally, up to their feasibility bounds, and SCPS sorts that group only
+#' when one of its units cannot take an equal share.
+#'
+#' @section Sample coordination:
+#'
+#' With `prn`, `method = "scps"` is the list-sequential correlated Poisson
+#' scheme of Bondesson & Thorburn (2008) with
+#' \enc{Grafström}{Grafstrom}'s maximal weights, coordinated through
+#' permanent random numbers as in \enc{Grafström}{Grafstrom} & Matei
+#' (2018). Units are visited in row order. Unit \eqn{k} is selected when
+#' \eqn{u_k < \pi_k^{(k-1)}}{u_k < pi_k^(k-1)}, its current conditional
+#' probability, and its
+#' probability displacement goes only to undecided units later in the
+#' list. The inclusion probabilities are still `pik` exactly. As with the
+#' `"poisson"`, `"sps"` and `"pareto"` methods of [unequal_prob_wor()], a
+#' small permanent random number makes selection more likely.
+#'
+#' Drawing two samples with the same `prn` coordinates them positively
+#' (large overlap), and drawing the second with `1 - prn` coordinates them
+#' negatively (small overlap). The sample depends on the row order, so
+#' coordinated draws must use the same ordering of the frame, for example
+#' sorted by a permanent unit identifier.
+#'
+#' Matei, Smith, Smeets & Klingwort (2023) replace the coordinates in
+#' `spread` by a measure of response burden, such as an indicator of
+#' highly burdened units or the inclusion probabilities, and draw the
+#' surveys with `prn` and `1 - prn`. Spreading on the burden measure keeps
+#' burdened units out of the same sample, and negative coordination keeps
+#' them out of both samples. This adapted SCP sampling is
+#' `balanced_wor(pik, spread = burden, method = "scps", prn = u)`.
 #'
 #' @return An object of class
 #'   `c("balanced", "unequal_prob", "wor", "sondage_sample")`.
@@ -188,6 +239,11 @@
 #'   is `FALSE` (e.g., stratified with non-integer per-stratum sizes).
 #'
 #' @references
+#' Bondesson, L. and Thorburn, D. (2008). A list sequential sampling
+#'   method suitable for real-time sampling. \emph{Scandinavian Journal of
+#'   Statistics}, 35(3), 466-483.
+#'   \doi{10.1111/j.1467-9469.2008.00596.x}
+#'
 #' Deville, J.C. and \enc{Tillé}{Tille}, Y. (1998). Unequal probability
 #'   sampling without replacement through a splitting method.
 #'   \emph{Biometrika}, 85(1), 89-101.
@@ -201,6 +257,11 @@
 #' Chauvet, G. (2009). Stratified balanced sampling. \emph{Survey
 #'   Methodology}, 35, 115-119.
 #'
+#' Friedman, J.H., Bentley, J.L. and Finkel, R.A. (1977). An algorithm for
+#'   finding best matches in logarithmic expected time. \emph{ACM
+#'   Transactions on Mathematical Software}, 3(3), 209-226.
+#'   \doi{10.1145/355744.355745}
+#'
 #' \enc{Grafström}{Grafstrom}, A., \enc{Lundström}{Lundstrom}, N.L.P.
 #'   and Schelin, L. (2012). Spatially balanced sampling through the
 #'   pivotal method. \emph{Biometrics}, 68(2), 514-520.
@@ -210,9 +271,17 @@
 #'   sampling. \emph{Journal of Statistical Planning and Inference},
 #'   142(1), 139-147. \doi{10.1016/j.jspi.2011.07.003}
 #'
+#' \enc{Grafström}{Grafstrom}, A. and Matei, A. (2018). Coordination of
+#'   spatially balanced samples. \emph{Survey Methodology}, 44(2),
+#'   215-238.
+#'
 #' \enc{Grafström}{Grafstrom}, A. and Schelin, L. (2014). How to select
 #'   representative samples. \emph{Scandinavian Journal of Statistics},
 #'   41(2), 277-290. \doi{10.1111/sjos.12016}
+#'
+#' Matei, A., Smith, P.A., Smeets, M.J.E. and Klingwort, J. (2023).
+#'   Targetted double control of burden in multiple surveys.
+#'   \emph{Survey Methodology}, 49(2), 363-384.
 #'
 #' Tripet, A. and \enc{Tillé}{Tille}, Y. (2026). Balanced sampling with
 #'   inequalities: application to category bounding, matrix rounding,
@@ -269,6 +338,16 @@
 #' s_scps <- balanced_wor(pik, spread = coords, method = "scps")
 #' s_scps$sample
 #'
+#' # Two surveys negatively coordinated with permanent random numbers,
+#' # spread on an indicator of highly burdened units (adapted SCP sampling)
+#' burdened <- as.double(seq_len(N) %in% c(4, 12, 21, 22, 32, 44))
+#' pik1 <- inclusion_prob(runif(N, 1, 5), 10)
+#' pik2 <- inclusion_prob(runif(N, 1, 5), 6)
+#' u <- runif(N)
+#' s1 <- balanced_wor(pik1, spread = burdened, method = "scps", prn = u)
+#' s2 <- balanced_wor(pik2, spread = burdened, method = "scps", prn = 1 - u)
+#' intersect(s1$sample, s2$sample)
+#'
 #' @export
 balanced_wor <- function(
   pik,
@@ -278,8 +357,10 @@ balanced_wor <- function(
   bounds = NULL,
   method = c("cube", "lpm2", "scps"),
   nrep = 1L,
+  prn = NULL,
   ...
 ) {
+  .stop_if_n_arg(sys.call(), "balanced_wor", "sum(pik)")
   if (.is_method_name(method) && is_registered_method(method)) {
     if (!is.null(bounds)) {
       stop(
@@ -288,7 +369,16 @@ balanced_wor <- function(
       )
     }
     return(
-      .dispatch_registered_balanced(pik, aux, strata, spread, method, nrep, ...)
+      .dispatch_registered_balanced(
+        pik,
+        aux,
+        strata,
+        spread,
+        method,
+        nrep,
+        prn,
+        list(...)
+      )
     )
   }
   method <- .match_choice(method, c("cube", "lpm2", "scps"), "method")
@@ -301,7 +391,13 @@ balanced_wor <- function(
     )
     .check_dots(...length(), ...names(), allowed = allowed_dots)
   }
-  nrep <- .check_nrep_prn(nrep)
+  nrep <- .check_nrep_prn(
+    nrep,
+    prn,
+    method,
+    supports_prn = .method_supports_prn(method, "balanced"),
+    supported = "scps"
+  )
 
   if (method %in% c("lpm2", "scps")) {
     if (!is.null(aux)) {
@@ -334,7 +430,7 @@ balanced_wor <- function(
       )
     }
     .check_pik(pik, fixed_size = TRUE)
-    return(.spatial_wor(pik, spread, method, nrep = nrep, ...))
+    return(.spatial_wor(pik, spread, method, nrep = nrep, prn = prn, ...))
   }
 
   if (!is.null(spread)) {
@@ -376,8 +472,8 @@ balanced_wor <- function(
     }
   ),
   scps = list(
-    single = function(pik, spread, eps, nrep) {
-      .Call(C_scps, pik, spread, eps)
+    single = function(pik, spread, eps, nrep, prn = NULL) {
+      .Call(C_scps, pik, spread, eps, prn)
     },
     batch = function(pik, spread, eps, nrep) {
       .Call(C_scps_batch, pik, spread, eps, nrep)
@@ -391,6 +487,7 @@ balanced_wor <- function(
   spread,
   method,
   nrep = 1L,
+  prn = NULL,
   eps = 1e-10,
   ...
 ) {
@@ -405,12 +502,19 @@ balanced_wor <- function(
   draw <- .spatial_draw_fns[[method]][[
     if (nrep == 1L) "single" else "batch"
   ]]
-  sample_data <- draw(
+  draw_args <- list(
     as.double(pik),
     spread,
     as.double(eps),
     as.integer(nrep)
   )
+  # prn reaches only methods whose spec allows it (checked upstream), and
+  # never a batch draw (prn with nrep > 1 is rejected upstream).
+  if (!is.null(prn)) {
+    .check_prn(prn, N)
+    draw_args$prn <- as.double(prn)
+  }
+  sample_data <- do.call(draw, draw_args)
 
   .new_wor_sample(
     sample = sample_data,
@@ -474,7 +578,8 @@ balanced_wor <- function(
       N,
       prepend_pik = FALSE,
       condition_aux = condition_aux,
-      qr_tol = qr_tol
+      qr_tol = qr_tol,
+      strata = strata_int
     )
     idx <- .Call(
       C_cube_stratified,
@@ -574,7 +679,8 @@ balanced_wor <- function(
   N,
   prepend_pik,
   condition_aux = FALSE,
-  qr_tol = sqrt(.Machine$double.eps)
+  qr_tol = sqrt(.Machine$double.eps),
+  strata = NULL
 ) {
   pik_d <- as.double(pik)
 
@@ -588,7 +694,7 @@ balanced_wor <- function(
   aux <- .check_cube_aux(aux, N)
 
   if (isTRUE(condition_aux) && ncol(aux) > 0L) {
-    aux <- .condition_cube_aux(aux, pik_d, qr_tol = qr_tol)
+    aux <- .condition_cube_aux(aux, pik_d, qr_tol = qr_tol, strata = strata)
   }
 
   if (prepend_pik) {
@@ -765,46 +871,87 @@ balanced_wor <- function(
 
 #' Condition auxiliary matrix for numerical stability in cube updates.
 #'
-#' Applies weighted centering/scaling (weights proportional to pik), then
-#' QR with column pivoting to drop near-dependent columns while preserving
-#' the effective constraint span.
+#' The cube balances `aux / pik`, with `pik / pik = 1` as the size
+#' constraint, or the stratum indicators with `strata`. Subtracting `c * pik`
+#' from a raw column, within one stratum, subtracts `c` from its `aux / pik`
+#' there, a multiple of a size constraint, so the balancing equations are
+#' unchanged. The columns are centered that way, within each stratum when
+#' `strata` is given, so a column constant within strata in `aux / pik`
+#' (such as a region dummy under equal `pik`) is recognized as redundant.
+#' They are then scaled and pruned of dependent columns in
+#' `aux / pik` space on the units the flight moves (`0 < pik < 1`). The
+#' kept columns stay in their original order, which the landing phase
+#' relaxes from last to first. A column is dropped as constant when its
+#' spread is at most `qr_tol` times its size in that space, so the result
+#' does not depend on the scale of a column.
+#'
+#' Centering the raw columns instead added `-mu / pik` to each constraint,
+#' which is outside the size constraint when `pik` varies, and dropped a
+#' constant raw column that is not constant after division by `pik`.
 #'
 #' @param aux Numeric matrix (N x p).
 #' @param pik Numeric vector of inclusion probabilities (length N).
 #' @param qr_tol Tolerance for QR rank detection.
+#' @param strata Dense integer stratum labels, or `NULL`.
 #' @return Conditioned matrix, possibly with fewer columns.
 #' @noRd
-.condition_cube_aux <- function(aux, pik, qr_tol = sqrt(.Machine$double.eps)) {
+.condition_cube_aux <- function(aux, pik, qr_tol = sqrt(.Machine$double.eps),
+                                strata = NULL) {
   N <- nrow(aux)
   if (N == 0L || ncol(aux) == 0L) {
     return(aux)
   }
+  active <- pik > 0 & pik < 1
+  if (!any(active)) {
+    return(matrix(0, nrow = N, ncol = 0))
+  }
 
-  w <- pik / sum(pik)
-  mu <- as.numeric(crossprod(w, aux))
-  aux_cs <- sweep(aux, 2, mu, "-", check.margin = FALSE)
-
-  sdw <- sqrt(pmax(as.numeric(crossprod(w, aux_cs^2)), 0))
-  keep_scale <- sdw > qr_tol
+  # The constant comes from the units the flight moves, so a column that
+  # is constant there has no spread left after centering.
+  flight <- function(x) x[active, , drop = FALSE] / pik[active]
+  w <- pik[active] / sum(pik[active])
+  rms <- sqrt(colSums(w * flight(aux)^2))
+  if (is.null(strata)) {
+    aux_c <- aux - outer(pik, colSums(aux[active, , drop = FALSE]) /
+      sum(pik[active]))
+  } else {
+    # One multiple of pik per stratum, from its moving units. A stratum
+    # with none keeps its values, which the flight never reads.
+    g <- factor(strata)
+    num <- rowsum(aux[active, , drop = FALSE], g[active])
+    den <- as.numeric(rowsum(pik[active], g[active]))
+    ratio <- matrix(0, nlevels(g), ncol(aux))
+    ratio[match(rownames(num), levels(g)), ] <- num / den
+    aux_c <- aux - pik * ratio[as.integer(g), , drop = FALSE]
+  }
+  sdw <- sqrt(pmax(colSums(w * flight(aux_c)^2), 0))
+  # Relative to the column's own size, so rescaling a column cannot drop
+  # it: an absolute cutoff dropped 1e-8 * aux, an independent constraint.
+  keep_scale <- sdw > qr_tol * rms
   if (!any(keep_scale)) {
     return(matrix(0, nrow = N, ncol = 0))
   }
-  aux_cs <- aux_cs[, keep_scale, drop = FALSE]
-  sdw <- sdw[keep_scale]
-  aux_cs <- sweep(aux_cs, 2, sdw, "/", check.margin = FALSE)
+  aux_c <- sweep(
+    aux_c[, keep_scale, drop = FALSE],
+    2,
+    sdw[keep_scale],
+    "/",
+    check.margin = FALSE
+  )
 
-  if (ncol(aux_cs) <= 1L) {
-    return(aux_cs)
+  if (ncol(aux_c) <= 1L) {
+    return(aux_c)
   }
-  # LINPACK path: rank-revealing pivoted QR that honors `tol`. The LAPACK
-  # path ignores `tol` and always reports full column rank, so it cannot
-  # detect dependent balancing constraints.
-  q <- qr(aux_cs, tol = qr_tol)
+  # LINPACK path: rank-revealing QR that honors `tol` and moves only
+  # near-dependent columns to the end. The LAPACK path ignores `tol` and
+  # always reports full column rank, so it cannot detect dependent
+  # balancing constraints.
+  q <- qr(flight(aux_c), tol = qr_tol)
   r <- q$rank
   if (r <= 0L) {
     return(matrix(0, nrow = N, ncol = 0))
   }
-  aux_cs[, q$pivot[seq_len(r)], drop = FALSE]
+  aux_c[, sort(q$pivot[seq_len(r)]), drop = FALSE]
 }
 
 #' @noRd
@@ -838,10 +985,20 @@ balanced_wor <- function(
 }
 
 #' Check per-stratum sum(pik). Warns and returns FALSE if any is non-integer.
+#'
+#' A stratum sum counts as whole within the tolerance `.check_whole_sum()`
+#' applies to the whole of `pik`, scaled by the stratum's own count and
+#' sum. A fixed `1e-4` took a stratum summing to 5e-5 as whole, and the
+#' stratified batch kernel then failed on a draw of the wrong size.
+#'
 #' @return TRUE if all per-stratum sums are close to an integer, FALSE otherwise.
 #' @noRd
-.check_stratum_sizes <- function(pik, strata, tol = 1e-4) {
+.check_stratum_sizes <- function(pik, strata, tol = NULL) {
   stratum_sums <- tapply(pik, strata, sum)
+  if (is.null(tol)) {
+    counts <- tapply(pik, strata, length)
+    tol <- pmax(1e-10, 64 * .Machine$double.eps * (counts + abs(stratum_sums)))
+  }
   not_int <- abs(stratum_sums - round(stratum_sums)) > tol
   if (any(not_int)) {
     bad <- names(stratum_sums)[not_int]
@@ -902,7 +1059,8 @@ balanced_wor <- function(
       N,
       prepend_pik = FALSE,
       condition_aux = condition_aux,
-      qr_tol = qr_tol
+      qr_tol = qr_tol,
+      strata = strata_int
     )
 
     if (fixed_size) {
